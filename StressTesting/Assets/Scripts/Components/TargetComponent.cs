@@ -9,6 +9,6 @@ public struct MinionTarget : IComponentData
 	public float speed;
 }
 
-public class TargetComponent : ComponentDataWrapper<MinionTarget>
+public class TargetComponent : ComponentDataProxy<MinionTarget>
 {
 }

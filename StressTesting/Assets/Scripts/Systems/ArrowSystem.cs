@@ -1,4 +1,5 @@
-﻿using Unity.Collections;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
@@ -9,38 +10,61 @@ public class ArrowSystem : JobComponentSystem
 {
 	public struct Arrows
 	{
-		public ComponentDataArray<ArrowData> data;
-		public EntityArray entities;
+		public NativeArray<ArrowData> data;
+		public NativeArray<Entity> entities;
 
 		public int Length;
+
+		public Arrows(EntityQuery entityQuery)
+		{
+			Length = entityQuery.CalculateLength();
+
+			data = entityQuery.ToComponentDataArray<ArrowData>(Allocator.TempJob);
+			entities = entityQuery.ToEntityArray(Allocator.TempJob);
+		}
+
+		public void Free()
+		{
+			data.Dispose();
+			entities.Dispose();
+		}
 	}
 
 	public struct Minions
 	{
 		[ReadOnly]
-		public ComponentDataArray<AliveMinionData> aliveMinionsFilter;
+		public NativeArray<MinionBitmask> constData;
 		[ReadOnly]
-		public ComponentDataArray<MinionBitmask> constData;
-		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
-		public EntityArray entities;
+		public NativeArray<UnitTransformData> transforms;
+		public NativeArray<Entity> entities;
 
 		public int Length;
+
+		public Minions(EntityQuery entityQuery)
+		{
+			Length = entityQuery.CalculateLength();
+
+			constData = entityQuery.ToComponentDataArray<MinionBitmask>(Allocator.TempJob);
+			transforms = entityQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob);
+			entities = entityQuery.ToEntityArray(Allocator.TempJob);
+		}
+
+		public void Free()
+		{
+			constData.Dispose();
+			transforms.Dispose();
+			entities.Dispose();
+		}
 	}
 
-	[Inject]
-	private Arrows arrows;
-
-	[Inject]
-	private Minions minions;
-
-	[Inject]
+	private EntityQuery arrowsQuery;
+	private EntityQuery minionsQuery;
+	
 	private MinionSystem minionSystem;
 
 	private NativeArray<RaycastHit> raycastHits;
 	private NativeArray<RaycastCommand> raycastCommands;
 
-	[Inject]
 	private UnitLifecycleManager lifecycleManager;
 
 	protected override void OnDestroyManager ()
@@ -50,12 +74,36 @@ public class ArrowSystem : JobComponentSystem
 		if (raycastCommands.IsCreated) raycastCommands.Dispose();
 	}
 
+	protected override void OnCreate()
+	{
+		lifecycleManager = World.GetOrCreateSystem<UnitLifecycleManager>();
+		minionSystem = World.GetOrCreateSystem<Minions>();
+
+		arrowsQuery = GetEntityQuery(ComponentType.ReadOnly<AliveMinionData>(), ComponentType.ReadOnly<MinionBitmask>(),
+			ComponentType.ReadOnly<UnitTransformData>(), ComponentType.ReadOnly<UnitTransformData>());
+		minionsQuery = GetEntityQuery(ComponentType.ReadOnly<AliveMinionData>(),
+			ComponentType.ReadOnly<MinionBitmask>(), ComponentType.ReadOnly<UnitTransformData>());
+	}
+
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
-		if (minionSystem == null) return inputDeps;
+		if (minionSystem == null) 
+			return inputDeps;
 
-		if (arrows.Length == 0) return inputDeps;
-		if (minions.Length == 0) return inputDeps;
+		var arrows = new Arrows(arrowsQuery);
+		if (arrows.Length == 0)
+		{
+			arrows.Free();
+			return inputDeps;
+		}
+
+		var minions = new Minions(minionsQuery);
+		if (minions.Length == 0)
+		{
+			arrows.Free();
+			minions.Free();
+			return inputDeps;
+		}
 
 		// Update seems to be called after Play mode has been exited
 
@@ -77,7 +125,7 @@ public class ArrowSystem : JobComponentSystem
 			minionConstData = minions.constData,
 			AttackCommands = CommandSystem.AttackCommandsConcurrent,
 			minionEntities = minions.entities,
-			queueForKillingEntities = lifecycleManager.queueForKillingEntities
+			queueForKillingEntities = lifecycleManager.queueForKillingEntities.ToConcurrent()
 		};
 			
 		var stopArrowJob = new StopArrowsJob
@@ -85,7 +133,7 @@ public class ArrowSystem : JobComponentSystem
 			raycastHits = raycastHits,
 			arrows = arrows.data,
 			arrowEntities = arrows.entities,
-			stoppedArrowsQueue = lifecycleManager.deathQueue
+			stoppedArrowsQueue = lifecycleManager.deathQueue.ToConcurrent()
 		};
 
 		var arrowJobFence = arrowJob.Schedule(arrows.Length, SimulationState.SmallBatchSize, JobHandle.CombineDependencies(inputDeps, CommandSystem.AttackCommandsFence));
@@ -98,12 +146,13 @@ public class ArrowSystem : JobComponentSystem
 		return stopArrowJobFence;
 	}
 	
-	//[ComputeJobOptimization]
+	[BurstCompile]
 	public struct StopArrowsJob : IJobParallelFor
 	{
-		public ComponentDataArray<ArrowData> arrows;
-		[ReadOnly]
-		public EntityArray arrowEntities;
+		[DeallocateOnJobCompletion]
+		public NativeArray<ArrowData> arrows;
+		[ReadOnly, DeallocateOnJobCompletion]
+		public NativeArray<Entity> arrowEntities;
 
 		[ReadOnly]
 		public NativeArray<RaycastHit> raycastHits;

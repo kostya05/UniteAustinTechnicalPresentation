@@ -1,6 +1,6 @@
 ﻿using Unity.Entities;
 
-public class RangedUnitDataWrapper : ComponentDataWrapper<RangedUnitData>
+public class RangedUnitDataWrapper : ComponentDataProxy<RangedUnitData>
 {
 }
 

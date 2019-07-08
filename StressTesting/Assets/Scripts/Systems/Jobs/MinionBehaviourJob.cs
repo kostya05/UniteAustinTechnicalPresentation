@@ -1,31 +1,32 @@
-﻿using Unity.Collections;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using Unity.Entities;
 using UnityEngine.Experimental.AI;
 
-[ComputeJobOptimization]
+[BurstCompile]
 public struct MinionBehaviourJob : IJobParallelForBatch
 {
 	[ReadOnly]
-	public ComponentDataArray<MinionTarget> targetPositions;
+	public NativeArray<MinionTarget> targetPositions;
 	[ReadOnly]
-	public ComponentDataArray<RigidbodyData> rigidbodyData;
+	public NativeArray<RigidbodyData> rigidbodyData;
 	[ReadOnly]
-	public ComponentDataArray<MinionAttackData> minionAttackData;
+	public NativeArray<MinionAttackData> minionAttackData;
 	[ReadOnly]
-	public ComponentDataArray<MinionData> minionData;
+	public NativeArray<MinionData> minionData;
 	[ReadOnly]
 	public float archerAttackTime;
 
-	public ComponentDataArray<TextureAnimatorData> animatorData;
+	public NativeArray<TextureAnimatorData> animatorData;
 
 	[ReadOnly]
-	public ComponentDataArray<UnitTransformData> transforms;
+	public NativeArray<UnitTransformData> transforms;
 
 	[ReadOnly]
-	public ComponentDataArray<NavMeshLocationComponent> navMeshLocations;
+	public NativeArray<NavMeshLocationComponent> navMeshLocations;
 
 	public NativeArray<Vector3> forwardsBuffer;
 	public NativeArray<Vector3> positionsBuffer;

@@ -1,10 +1,11 @@
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
 using Unity.Entities;
 using UnityEngine.Experimental.AI;
 
- [ComputeJobOptimization]
+ [BurstCompile]
 public struct MinionBehaviourMoveJob : IJobParallelForBatch
 {
 	public NativeArray<Vector3> positionsBuffer;

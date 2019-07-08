@@ -7,7 +7,7 @@ public struct AliveMinionData : IComponentData
 }
 
 
-public class AliveMinionComponent : ComponentDataWrapper<AliveMinionData>
+public class AliveMinionComponent : ComponentDataProxy<AliveMinionData>
 {
 
 }

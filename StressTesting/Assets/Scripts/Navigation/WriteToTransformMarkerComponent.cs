@@ -5,6 +5,6 @@ public struct WriteToTransformMarker : IComponentData
 {
 }
 
-public class WriteToTransformMarkerComponent : ComponentDataWrapper<WriteToTransformMarker>
+public class WriteToTransformMarkerComponent : ComponentDataProxy<WriteToTransformMarker>
 {
 }

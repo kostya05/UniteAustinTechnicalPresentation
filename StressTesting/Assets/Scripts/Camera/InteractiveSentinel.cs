@@ -22,7 +22,7 @@ public class InteractiveSentinel : MonoBehaviour
 		}
 		else
 		{
-			World.Active.GetExistingManager<SpawnerSystem>().SpawnAdditionalUnits();
+			World.Active.GetOrCreateSystem<SpawnerSystem>().SpawnAdditionalUnits();
 
 			FindObjectOfType<TextureAnimatorSystemGui>().Enabled = true;
 

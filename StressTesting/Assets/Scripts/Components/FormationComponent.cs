@@ -158,7 +158,7 @@ public struct FormationIntegrityData : IComponentData
 }
 
 // TODO remove this workaround, you should be able to add to formationEntity ComponentType.FixedArray(typeof(Entity))
-public struct EntityRef
+public struct EntityRef : IBufferElementData
 {
 	public Entity entity;
 
@@ -168,6 +168,6 @@ public struct EntityRef
 	}
 }
 
-public class FormationComponent : ComponentDataWrapper<FormationData>
+public class FormationComponent : ComponentDataProxy<FormationData>
 {
 }

@@ -8,7 +8,7 @@ public struct RigidbodyData : IComponentData
 	public float3 AngularVelocity;
 }
 
-public class RigidbodyComponent : ComponentDataWrapper<RigidbodyData>
+public class RigidbodyComponent : ComponentDataProxy<RigidbodyData>
 {
 
 }

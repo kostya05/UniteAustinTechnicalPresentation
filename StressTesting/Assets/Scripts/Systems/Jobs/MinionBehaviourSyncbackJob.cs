@@ -1,15 +1,16 @@
-﻿using Unity.Collections;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using Unity.Entities;
 using UnityEngine.Experimental.AI;
 
-[ComputeJobOptimization]
+[BurstCompile]
 public struct MinionBehaviourSyncbackJob : IJobParallelForBatch
 {
-	public ComponentDataArray<UnitTransformData> transforms;
-	public ComponentDataArray<NavMeshLocationComponent> navMeshLocations;
+	public NativeArray<UnitTransformData> transforms;
+	public NativeArray<NavMeshLocationComponent> navMeshLocations;
 
 	[DeallocateOnJobCompletion]
 	public NativeArray<Vector3> forwardsBuffer;

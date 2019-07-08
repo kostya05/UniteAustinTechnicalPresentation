@@ -1,4 +1,5 @@
 using System;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
@@ -12,11 +13,11 @@ public partial class CrowdSystem
     public struct CheckPathNeededJob : IJobParallelFor
     {
         [ReadOnly]
-        public ComponentDataArray<CrowdAgentNavigator> agentNavigators;
+        public NativeArray<CrowdAgentNavigator> agentNavigators;
         [ReadOnly]
         public NativeArray<uint> pathRequestIdForAgent;
 
-        public NativeArray<bool1> planPathForAgent;
+        public NativeArray<bool> planPathForAgent;
 
         public void Execute(int index)
         {
@@ -36,11 +37,11 @@ public partial class CrowdSystem
         [ReadOnly]
         public NavMeshQuery query;
         [ReadOnly]
-        public ComponentDataArray<CrowdAgent> agents;
+        public NativeArray<CrowdAgent> agents;
 
-        public ComponentDataArray<CrowdAgentNavigator> agentNavigators;
+        public NativeArray<CrowdAgentNavigator> agentNavigators;
 
-        public NativeArray<bool1> planPathForAgent;
+        public NativeArray<bool> planPathForAgent;
         public NativeArray<uint> pathRequestIdForAgent;
         public NativeArray<PathQueryQueueEcs.RequestEcs> pathRequests;
         public NativeArray<int> pathRequestsRange;
@@ -179,22 +180,15 @@ public partial class CrowdSystem
         }
     }
 
-    public struct AdvancePathJob : IJobParallelFor
+    [BurstCompile]
+    public struct AdvancePathJob : IJobForEach_BCC<PolygonIdBuffer, CrowdAgent, CrowdAgentNavigator>
     {
-        [ReadOnly]
-        public ComponentDataArray<CrowdAgent> agents;
-
-        public ComponentDataArray<CrowdAgentNavigator> agentNavigators;
-        public FixedArrayArray<PolygonId> paths;
-
-        public void Execute(int index)
+        public void Execute(DynamicBuffer<PolygonIdBuffer> path, ref CrowdAgent agent, ref CrowdAgentNavigator agentNavigator)
         {
-            var agentNavigator = agentNavigators[index];
             if (!agentNavigator.active)
                 return;
 
-            var path = paths[index];
-            var agLoc = agents[index].location;
+            var agLoc = agent.location;
             var i = 0;
             for (; i < agentNavigator.pathSize; ++i)
             {
@@ -204,10 +198,7 @@ public partial class CrowdSystem
 
             var agentNotOnPath = i == agentNavigator.pathSize && i > 0;
             if (agentNotOnPath)
-            {
                 agentNavigator.MoveTo(agentNavigator.requestedDestination);
-                agentNavigators[index] = agentNavigator;
-            }
             else if (agentNavigator.destinationInView)
             {
                 var distToDest = math.distance(agLoc.position, agentNavigator.pathEnd.position );
@@ -215,11 +206,9 @@ public partial class CrowdSystem
                 agentNavigator.destinationReached = distToDest < stoppingDistance;
                 agentNavigator.distanceToDestination = distToDest;
                 agentNavigator.goToDestination &= !agentNavigator.destinationReached;
-                agentNavigators[index] = agentNavigator;
+                
                 if (agentNavigator.destinationReached)
-                {
                     i = agentNavigator.pathSize;
-                }
             }
             if (i == 0 && !agentNavigator.destinationReached)
                 return;
@@ -237,21 +226,15 @@ public partial class CrowdSystem
                     path[dst] = path[src];
                 }
                 agentNavigator.pathSize -= i;
-                agentNavigators[index] = agentNavigator;
             }
         }
     }
 
-    [ComputeJobOptimization]
-    public struct UpdateVelocityJob : IJobParallelFor
+    [BurstCompile]
+    public struct UpdateVelocityJob : IJobForEach_BCC<PolygonIdBuffer, CrowdAgent, CrowdAgentNavigator>
     {
         [ReadOnly]
         public NavMeshQuery query;
-        [ReadOnly]
-        public FixedArrayArray<PolygonId> paths;
-
-        public ComponentDataArray<CrowdAgentNavigator> agentNavigators;
-        public ComponentDataArray<CrowdAgent> agents;
 
         [DeallocateOnJobCompletion]
         [NativeDisableParallelForRestriction]
@@ -265,17 +248,12 @@ public partial class CrowdSystem
         [NativeDisableParallelForRestriction]
         public NativeArray<float> vertexSide;
 
-        public void Execute(int index)
+        public void Execute(DynamicBuffer<PolygonIdBuffer> pathBuffer, ref CrowdAgent agent, ref CrowdAgentNavigator agentNavigator)
         {
-            var agent = agents[index];
-            var agentNavigator = agentNavigators[index];
             if (!agentNavigator.active || !query.IsValid(agent.location))
             {
                 if (math.any(agent.velocity))
-                {
                     agent.velocity = new float3(0);
-                    agents[index] = agent;
-                }
                 return;
             }
 
@@ -288,7 +266,7 @@ public partial class CrowdSystem
                 if (agentNavigator.pathSize > 1)
                 {
                     var cornerCount = 0;
-                    var path = paths[index];
+                    var path = pathBuffer.AsNativeArray();
                     var pathStatus = PathUtils.FindStraightPath(query, currentPos, endPos, path, agentNavigator.pathSize, ref straightPath, ref straightPathFlags, ref vertexSide, ref cornerCount, straightPath.Length);
 
                     if (pathStatus.IsSuccess() && cornerCount > 1)
@@ -302,7 +280,6 @@ public partial class CrowdSystem
                 {
                     agentNavigator.destinationInView = true;
                 }
-                agentNavigators[index] = agentNavigator;
 
                 var velocity = agentNavigator.steeringTarget - currentPos;
                 velocity.y = 0.0f;
@@ -312,8 +289,6 @@ public partial class CrowdSystem
             {
                 agent.velocity = new float3(0);
             }
-
-            agents[index] = agent;
         }
     }
 
@@ -322,7 +297,7 @@ public partial class CrowdSystem
         [ReadOnly]
         public NavMeshQuery query;
 
-        public ComponentDataArray<CrowdAgent> agents;
+        public NativeArray<CrowdAgent> agents;
         public float dt;
 
         public void Execute(int index)
@@ -362,14 +337,16 @@ public partial class CrowdSystem
     public struct ApplyQueryResultsJob : IJob
     {
         public PathQueryQueueEcs queryQueue;
-        public FixedArrayArray<PolygonId> paths;
-        public ComponentDataArray<CrowdAgentNavigator> agentNavigators;
+        public NativeArray<ArchetypeChunk> paths;
+        public NativeArray<CrowdAgentNavigator> agentNavigators;
+
+        public ArchetypeChunkBufferType<PolygonIdBuffer> PolygonIdBuffer;
 
         public void Execute()
         {
             if (queryQueue.GetResultPathsCount() > 0)
             {
-                queryQueue.CopyResultsTo(ref paths, ref agentNavigators);
+                queryQueue.CopyResultsTo(PolygonIdBuffer, ref paths, ref agentNavigators);
                 queryQueue.ClearResults();
             }
         }

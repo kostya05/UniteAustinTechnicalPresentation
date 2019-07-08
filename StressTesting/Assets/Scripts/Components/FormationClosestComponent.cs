@@ -7,7 +7,7 @@ public struct FormationClosestData : IComponentData
 	public float3 closestFormationPosition;
 }
 
-public class FormationClosestComponent : ComponentDataWrapper<FormationClosestData>
+public class FormationClosestComponent : ComponentDataProxy<FormationClosestData>
 {
 	
 }

@@ -5,10 +5,14 @@ using Unity.Entities;
 
 public struct MinionFlightJob : IJobParallelFor
 {
-	public ComponentDataArray<UnitTransformData> flyingUnits;
-	public ComponentDataArray<TextureAnimatorData> textureAnimators;
-	public ComponentDataArray<RigidbodyData> rigidbodies;
-	public ComponentDataArray<MinionData> minionData;
+	[DeallocateOnJobCompletion]
+	public NativeArray<UnitTransformData> flyingUnits;
+	[DeallocateOnJobCompletion]
+	public NativeArray<TextureAnimatorData> textureAnimators;
+	[DeallocateOnJobCompletion]
+	public NativeArray<RigidbodyData> rigidbodies;
+	[DeallocateOnJobCompletion]
+	public NativeArray<MinionData> minionData;
 
 	[ReadOnly]
 	public NativeArray<RaycastHit> raycastHits;

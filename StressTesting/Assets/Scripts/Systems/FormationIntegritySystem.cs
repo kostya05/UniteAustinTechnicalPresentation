@@ -1,4 +1,5 @@
-﻿using Unity.Collections;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Entities;
@@ -6,51 +7,45 @@ using Unity.Entities;
 [UpdateAfter(typeof(PrepareMinionTargetsSystem))]
 public class FormationIntegritySystem : JobComponentSystem
 {
-    public struct Formations
-    {
-        public ComponentDataArray<FormationIntegrityData> integrityData;
-        public ComponentDataArray<FormationData> data;
-        public FixedArrayArray<EntityRef> unitData;
+    private EntityQuery formationsQuery;
 
-        public int Length;
+    //[Inject]
+    //public ComponentDataFromEntity<MinionData> minionData;
+
+    //[Inject]
+    //public ComponentDataFromEntity<UnitTransformData> minionTransforms;
+    
+    //[Inject]
+    //public ComponentDataFromEntity<MinionTarget> minionTargets;
+    
+    protected override void OnCreate()
+    {
+        formationsQuery = GetEntityQuery(ComponentType.ChunkComponent<EntityRef>(),
+            ComponentType.ReadOnly<FormationData>(),
+            ComponentType.ReadWrite<FormationIntegrityData>());
     }
 
-    [Inject]
-    private Formations formations;
-
-    [Inject]
-    public ComponentDataFromEntity<MinionData> minionData;
-
-    [Inject]
-    public ComponentDataFromEntity<UnitTransformData> minionTransforms;
-    
-    [Inject]
-    public ComponentDataFromEntity<MinionTarget> minionTargets;
-
-	protected override JobHandle OnUpdate(JobHandle inputDeps)
+    protected override JobHandle OnUpdate(JobHandle inputDeps)
     {
-        if (formations.Length == 0) return inputDeps;
+        var count = formationsQuery.CalculateLength();
+        if (count == 0)
+            return inputDeps;
 
         var calculateIntegrityDataJob = new CalculateIntegrityDataJob
         {
-            formationIntegrityData = formations.integrityData,
-            formationData = formations.data,
-            minionData = minionData,
-            transforms = minionTransforms,
-            minionTargets = minionTargets,
-            formationUnitData = formations.unitData
+            minionData = GetComponentDataFromEntity<MinionData>(),
+            transforms = GetComponentDataFromEntity<UnitTransformData>(),
+            minionTargets = GetComponentDataFromEntity<MinionTarget>()
         };
 
-        var CalculateIntegrityFence = calculateIntegrityDataJob.Schedule(formations.Length, SimulationState.BigBatchSize, inputDeps);
+        var CalculateIntegrityFence = calculateIntegrityDataJob.Schedule(formationsQuery, inputDeps);
 
         return CalculateIntegrityFence;
     }
 
-    [ComputeJobOptimization]
-    private struct CalculateIntegrityDataJob : IJobParallelFor
+    [BurstCompile]
+    private struct CalculateIntegrityDataJob : IJobForEachWithEntity_EBCC<EntityRef, FormationIntegrityData, FormationData>
     {
-        public ComponentDataArray<FormationIntegrityData> formationIntegrityData;
-
         [ReadOnly]
         public ComponentDataFromEntity<MinionData> minionData;
 
@@ -59,20 +54,12 @@ public class FormationIntegritySystem : JobComponentSystem
 
         [ReadOnly]
         public ComponentDataFromEntity<MinionTarget> minionTargets;
-
-
-        [ReadOnly]
-        public FixedArrayArray<EntityRef> formationUnitData;
         
-        [ReadOnly]
-        public ComponentDataArray<FormationData> formationData;
-        
-        public void Execute(int index)
+        public void Execute(Entity entity, int index, DynamicBuffer<EntityRef> unitsInFormation, ref FormationIntegrityData integrityData, [ReadOnly]ref FormationData formationData)
         {
-            var integrityData = new FormationIntegrityData();
-            var unitsInFormation = formationUnitData[index];
-
-            for (var i = 0; i < formationData[index].UnitCount; ++i)
+            integrityData = new FormationIntegrityData();
+            
+            for (var i = 0; i < formationData.UnitCount; ++i)
             {
                 var unitEntity = unitsInFormation[i].entity;
 
@@ -98,8 +85,6 @@ public class FormationIntegritySystem : JobComponentSystem
                     ++integrityData.unitsFar;
                 }
             }
-
-            formationIntegrityData[index] = integrityData;
         }
     }
 }

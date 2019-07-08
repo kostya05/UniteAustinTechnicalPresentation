@@ -14,9 +14,6 @@ public class CommandSystem : JobComponentSystem
 
 	private const int AttackCommandBufferSize = 10000;
 
-	[Inject]
-	private ComponentDataFromEntity<MinionData> minions;
-
 
 	protected override void OnDestroyManager()
 	{
@@ -30,12 +27,13 @@ public class CommandSystem : JobComponentSystem
 		if (!AttackCommands.IsCreated)
 		{
 			AttackCommands = new NativeQueue<AttackCommand>(Allocator.Persistent);
-			AttackCommandsConcurrent = AttackCommands;
+			AttackCommandsConcurrent = AttackCommands.ToConcurrent();
 		}
 
 		AttackCommandsConcurrentFence.Complete();
 
-		var attackCommandsJob = new AttackCommandsJob { minions = minions, attackCommands = AttackCommands };
+		
+		var attackCommandsJob = new AttackCommandsJob { minions = GetComponentDataFromEntity<MinionData>(), attackCommands = AttackCommands };
 
 		AttackCommandsFence = attackCommandsJob.Schedule(inputDeps);
 

@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -68,16 +69,16 @@ public class TextureAnimatorSystem : JobComponentSystem
 		public int TextureWidth;
 
 		public float AnimationLength;
-		public bool1 Looping;
+		public bool Looping;
 	}
 
 	#region Per unit type tuples
 
 	public struct AllUnits
 	{
-		public ComponentDataArray<TextureAnimatorData> animationData;
+		public NativeArray<TextureAnimatorData> animationData;
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
+		public NativeArray<UnitTransformData> transforms;
 
 		public int Length;
 
@@ -86,10 +87,10 @@ public class TextureAnimatorSystem : JobComponentSystem
 	public struct MeleeUnits
 	{
 		[ReadOnly]
-		public ComponentDataArray<MeleeUnitData> meleeUnitFilter;
-		public ComponentDataArray<TextureAnimatorData> animationData;
+		public NativeArray<MeleeUnitData> meleeUnitFilter;
+		public NativeArray<TextureAnimatorData> animationData;
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
+		public NativeArray<UnitTransformData> transforms;
 
 		public int Length;
 	}
@@ -97,10 +98,10 @@ public class TextureAnimatorSystem : JobComponentSystem
 	public struct TankUnits
 	{
 		[ReadOnly]
-		public ComponentDataArray<TankUnitData> tankUnitFilter;
-		public ComponentDataArray<TextureAnimatorData> animationData;
+		public NativeArray<TankUnitData> tankUnitFilter;
+		public NativeArray<TextureAnimatorData> animationData;
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
+		public NativeArray<UnitTransformData> transforms;
 
 		public int Length;
 	}
@@ -109,20 +110,20 @@ public class TextureAnimatorSystem : JobComponentSystem
 	public struct RangedUnits
 	{
 		[ReadOnly]
-		public ComponentDataArray<RangedUnitData> rangedUnitsSelector;
-		public ComponentDataArray<TextureAnimatorData> animationData;
+		public NativeArray<RangedUnitData> rangedUnitsSelector;
+		public NativeArray<TextureAnimatorData> animationData;
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
+		public NativeArray<UnitTransformData> transforms;
 
 		public int Length;
 	}
 
 	public struct SkeletonUnits
 	{
-		public ComponentDataArray<SkeletonUnitData> skeletonUnitsSelector;
-		public ComponentDataArray<TextureAnimatorData> animationData;
+		public NativeArray<SkeletonUnitData> skeletonUnitsSelector;
+		public NativeArray<TextureAnimatorData> animationData;
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
+		public NativeArray<UnitTransformData> transforms;
 
 		public int Length;
 	}
@@ -144,7 +145,7 @@ public class TextureAnimatorSystem : JobComponentSystem
 	private NativeArray<AnimationClipDataBaked> animationClipData;
 
 	//	[InjectTuples(1)]
-	//private ComponentDataArray<TextureAnimatorSystemData> textureAnimatorSystemData;
+	//private NativeArray<TextureAnimatorSystemData> textureAnimatorSystemData;
 
 	public Dictionary<UnitType, DataPerUnitType> perUnitTypeDataHolder;
 
@@ -152,10 +153,10 @@ public class TextureAnimatorSystem : JobComponentSystem
 
 	#region Jobs
 
-	[ComputeJobOptimization]
+	[BurstCompile]
 	struct PrepareAnimatorDataJob : IJobParallelFor
 	{
-		public ComponentDataArray<TextureAnimatorData> textureAnimatorData;
+		public NativeArray<TextureAnimatorData> textureAnimatorData;
 
 		[NativeFixedLength(100)]
 		[ReadOnly]
@@ -189,14 +190,14 @@ public class TextureAnimatorSystem : JobComponentSystem
 	}
 
 #if !USE_SAFE_JOBS
-	[ComputeJobOptimization]
+	[BurstCompile]
 	struct CullAndComputeParameters : IJobParallelFor
 	{
 		[ReadOnly]
-		public ComponentDataArray<TextureAnimatorData> textureAnimatorData;
+		public NativeArray<TextureAnimatorData> textureAnimatorData;
 
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> unitTransformData;
+		public NativeArray<UnitTransformData> unitTransformData;
 
 		[NativeFixedLength(100)]
 		[ReadOnly]
@@ -301,14 +302,14 @@ public class TextureAnimatorSystem : JobComponentSystem
 #endif
 
 #if USE_SAFE_JOBS
-	[ComputeJobOptimization]
+	[BurstCompile]
 	struct CullAndComputeParametersSafe : IJob
 	{
 		[ReadOnly]
-		public ComponentDataArray<TextureAnimatorData> textureAnimatorData;
+		public NativeArray<TextureAnimatorData> textureAnimatorData;
 
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> unitTransformData;
+		public NativeArray<UnitTransformData> unitTransformData;
 
 		[NativeFixedLength(100)]
 		[ReadOnly]
@@ -400,9 +401,9 @@ public class TextureAnimatorSystem : JobComponentSystem
 
 	#endregion
 
-	protected override void OnCreateManager(int capacity)
+	protected override void OnCreate()
 	{
-		base.OnCreateManager(capacity);
+		base.OnCreate();
 
 		// CHECK: Calling Initialize here causes a 100% reproducable crash on play
 		//Initialize();
@@ -590,7 +591,7 @@ public class TextureAnimatorSystem : JobComponentSystem
 		return inputDeps;
 	}
 
-	private void ComputeFences(ComponentDataArray<TextureAnimatorData> textureAnimatorDataForUnitType, float dt, ComponentDataArray<UnitTransformData> unitTransformDataForUnitType, KeyValuePair<UnitType, DataPerUnitType> data, JobHandle previousFence, NativeArray<JobHandle> jobHandles, int i)
+	private void ComputeFences(NativeArray<TextureAnimatorData> textureAnimatorDataForUnitType, float dt, NativeArray<UnitTransformData> unitTransformDataForUnitType, KeyValuePair<UnitType, DataPerUnitType> data, JobHandle previousFence, NativeArray<JobHandle> jobHandles, int i)
 	{
 		Profiler.BeginSample("Scheduling");
 		// TODO: Replace this with more efficient search.

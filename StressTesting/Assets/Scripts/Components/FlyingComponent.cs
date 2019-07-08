@@ -5,7 +5,7 @@ public struct FlyingData : IComponentData
 	
 }
 
-public class FlyingComponent : ComponentDataWrapper<FlyingData>
+public class FlyingComponent : ComponentDataProxy<FlyingData>
 {
 	
 }

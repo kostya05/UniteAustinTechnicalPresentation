@@ -8,34 +8,51 @@ public class ArcherMinionSystem : JobComponentSystem
 {
 	public struct RangedMinions
 	{
-		[ReadOnly]
-		public ComponentDataArray<RangedUnitData> rangedMinionsFilter;
-		[ReadOnly]
-		public ComponentDataArray<AliveMinionData> aliveMinionsFilter;
-		public ComponentDataArray<MinionData> minions;
-		public ComponentDataArray<UnitTransformData> transforms;
-		public ComponentDataArray<MinionBitmask> bitmask;
+		public NativeArray<MinionData> minions;
+		public NativeArray<UnitTransformData> transforms;
+		public NativeArray<MinionBitmask> bitmask;
 
 		public int Length;
+
+		public RangedMinions(EntityQuery entityQuery) : this()
+		{
+			Length = entityQuery.CalculateLength();
+			if(Length == 0)
+				return;
+
+			minions = entityQuery.ToComponentDataArray<MinionData>(Allocator.TempJob);
+			transforms = entityQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob);
+			bitmask = entityQuery.ToComponentDataArray<MinionBitmask>(Allocator.TempJob);
+		}
 	}
 
-	[Inject]
-	private RangedMinions rangedMinions;
+	private EntityQuery rangedMinionsQuery;
 
-	[Inject]
 	private ComponentDataFromEntity<FormationClosestData> formationClosestDataFromEntity;
-	[Inject]
 	private ComponentDataFromEntity<FormationData> formationsFromEntity;
-	[Inject]
+
 	private UnitLifecycleManager lifeCycleManager;
 
 	private JobHandle archerJobFence;
 
 	public float archerAttackCycle = 0;
 
+	protected override void OnCreate()
+	{
+		lifeCycleManager = World.GetOrCreateSystem<UnitLifecycleManager>();
+		rangedMinionsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<RangedUnitData>(),
+			ComponentType.ReadOnly<AliveMinionData>(),
+			ComponentType.ReadWrite<MinionData>(),
+			ComponentType.ReadWrite<UnitTransformData>(),
+			ComponentType.ReadWrite<MinionBitmask>());
+	}
+
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
-		if (rangedMinions.Length == 0 || !lifeCycleManager.createdArrows.IsCreated) return inputDeps;
+		var rangedMinions = new RangedMinions(rangedMinionsQuery);
+		if (rangedMinions.Length == 0 || !lifeCycleManager.createdArrows.IsCreated)
+			return inputDeps;
 
 		float prevArcherAttackCycle = archerAttackCycle;
 		archerAttackCycle += Time.deltaTime;
@@ -44,9 +61,12 @@ public class ArcherMinionSystem : JobComponentSystem
 			archerAttackCycle -= SimulationSettings.Instance.ArcherAttackTime;
 		}
 
+		formationsFromEntity = GetComponentDataFromEntity<FormationData>();
+		formationClosestDataFromEntity = GetComponentDataFromEntity<FormationClosestData>();
+
 		var archerJob = new ArcherJob
 		{
-			createdArrowsQueue = lifeCycleManager.createdArrows,
+			createdArrowsQueue = lifeCycleManager.createdArrows.ToConcurrent(),
 			archers = rangedMinions.minions,
 			transforms = rangedMinions.transforms,
 			formations = formationsFromEntity,

@@ -5,6 +5,6 @@ using System.Text;
 using System.Threading.Tasks;
 using Unity.Entities;
 
-public class TankUnitDataWrapper : ComponentDataWrapper<TankUnitData>
+public class TankUnitDataWrapper : ComponentDataProxy<TankUnitData>
 {
 }

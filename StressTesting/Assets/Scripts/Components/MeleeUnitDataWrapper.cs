@@ -5,6 +5,6 @@ using System.Text;
 using System.Threading.Tasks;
 using Unity.Entities;
 
-public class MeleeUnitDataWrapper : ComponentDataWrapper<MeleeUnitData>
+public class MeleeUnitDataWrapper : ComponentDataProxy<MeleeUnitData>
 {
 }

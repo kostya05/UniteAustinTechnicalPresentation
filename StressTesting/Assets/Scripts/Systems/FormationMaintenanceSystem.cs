@@ -1,4 +1,5 @@
-﻿using Unity.Collections;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Entities;
@@ -10,22 +11,22 @@ public class FormationMaintenanceSystem : JobComponentSystem
 	[Inject]
 	private FormationSystem.Formations formations;
 
-	[Inject]
-	private FixedArrayFromEntity<EntityRef> formationsUnitDataFromEntity;
+	//[Inject]
+	//private BufferFromEntity<EntityRef> formationsUnitDataFromEntity;
 
-	[Inject]
-	private ComponentDataFromEntity<IndexInFormationData> indicesInFormation;
+	//[Inject]
+	//private ComponentDataFromEntity<IndexInFormationData> indicesInFormation;
 
 	public struct Minions
 	{
 		[ReadOnly]
-		public ComponentDataArray<AliveMinionData> aliveMinionsFilter;
+		public NativeArray<AliveMinionData> aliveMinionsFilter;
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
+		public NativeArray<UnitTransformData> transforms;
 		[ReadOnly]
-		public ComponentDataArray<IndexInFormationData> indicesInFormation;
+		public NativeArray<IndexInFormationData> indicesInFormation;
 
-		public EntityArray entities;
+		public NativeArray<Entity> entities;
 
 		public int Length;
 	}
@@ -60,11 +61,11 @@ public class FormationMaintenanceSystem : JobComponentSystem
 		return rearrangeFence;
 	}
 
-	[ComputeJobOptimization]
+	[BurstCompile]
 	private struct ClearUnitDataJob : IJobParallelFor
 	{
 		[ReadOnly]
-		public ComponentDataArray<FormationData> formations;
+		public NativeArray<FormationData> formations;
 		public FixedArrayArray<EntityRef> formationUnitData;
 
 		public void Execute(int index)
@@ -79,16 +80,16 @@ public class FormationMaintenanceSystem : JobComponentSystem
 		}
 	}
 
-	[ComputeJobOptimization]
+	[BurstCompile]
 	private struct FillUnitDataJob : IJob // this can't be parallel job because of FromEntity does not support parallel writing
 	{
 		public FixedArrayFromEntity<EntityRef> formationUnitData;
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
+		public NativeArray<UnitTransformData> transforms;
 		[ReadOnly]
-		public ComponentDataArray<IndexInFormationData> indicesInFormation;
+		public NativeArray<IndexInFormationData> indicesInFormation;
 		[ReadOnly]
-		public EntityArray minionEntities;
+		public NativeArray<Entity> minionEntities;
 
 		public int length;
 
@@ -103,11 +104,11 @@ public class FormationMaintenanceSystem : JobComponentSystem
 		}
 	}
 
-	[ComputeJobOptimization]
+	[BurstCompile]
 	private struct RearrangeUnitIndexesJob : IJobParallelFor
 	{
 		[ReadOnly]
-		public ComponentDataArray<FormationData> formations;
+		public NativeArray<FormationData> formations;
 		public FixedArrayArray<EntityRef> formationUnitData;
 
 		[NativeDisableParallelForRestriction]

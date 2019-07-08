@@ -8,18 +8,27 @@ public class FlightSystem : JobComponentSystem
 {
 	public struct FlyingUnits
 	{
-		[ReadOnly]
-		public ComponentDataArray<FlyingData> flyingSelector;
-		public ComponentDataArray<UnitTransformData> transforms;
-		public ComponentDataArray<RigidbodyData> rigidbodies;
-		public ComponentDataArray<MinionData> data;
-		public ComponentDataArray<TextureAnimatorData> animationData;
+		public NativeArray<UnitTransformData> transforms;
+		public NativeArray<RigidbodyData> rigidbodies;
+		public NativeArray<MinionData> data;
+		public NativeArray<TextureAnimatorData> animationData;
 
 		public int Length;
+
+		public FlyingUnits(EntityQuery entityQuery) : this()
+		{
+			Length = entityQuery.CalculateLength();
+			if(Length == 0)
+				return;
+
+			transforms = entityQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob);
+			rigidbodies = entityQuery.ToComponentDataArray<RigidbodyData>(Allocator.TempJob);
+			data = entityQuery.ToComponentDataArray<MinionData>(Allocator.TempJob);
+			animationData = entityQuery.ToComponentDataArray<TextureAnimatorData>(Allocator.TempJob);
+		}
 	}
 
-	[Inject]
-	private FlyingUnits flyingUnits;
+	private EntityQuery flyingUnitsQuery;
 
 	private NativeArray<RaycastHit> raycastHits;
 	private NativeArray<RaycastCommand> raycastCommands;
@@ -32,9 +41,21 @@ public class FlightSystem : JobComponentSystem
 		if (raycastCommands.IsCreated) raycastCommands.Dispose();
 	}
 
+	protected override void OnCreate()
+	{
+		flyingUnitsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<FlyingData>(),
+			ComponentType.ReadWrite<UnitTransformData>(),
+			ComponentType.ReadWrite<RigidbodyData>(),
+			ComponentType.ReadWrite<MinionData>(),
+			ComponentType.ReadWrite<TextureAnimatorData>());
+	}
+
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
-		if (flyingUnits.Length == 0) return inputDeps;
+		var flyingUnits = new FlyingUnits(flyingUnitsQuery);
+		if (flyingUnits.Length == 0) 
+			return inputDeps;
 
 		// ============ REALLOC ===============
 

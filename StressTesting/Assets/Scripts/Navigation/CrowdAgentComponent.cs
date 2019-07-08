@@ -10,4 +10,4 @@ public struct CrowdAgent : IComponentData
     public NavMeshLocation location;
 }
 
-public class CrowdAgentComponent : ComponentDataWrapper<CrowdAgent> {}
+public class CrowdAgentComponent : ComponentDataProxy<CrowdAgent> {}

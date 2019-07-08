@@ -1,16 +1,17 @@
-﻿using Unity.Collections;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Entities;
 
-[ComputeJobOptimization]
+[BurstCompile]
 public struct PrepareBucketsJob : IJob
 {
 
 	[ReadOnly]
-	public ComponentDataArray<UnitTransformData> transforms;
+	public NativeArray<UnitTransformData> transforms;
 	[ReadOnly]
-	public ComponentDataArray<MinionBitmask> minionBitmask;
+	public NativeArray<MinionBitmask> minionBitmask;
 
 	public NativeMultiHashMap<int, int> buckets;
 
@@ -27,16 +28,16 @@ public struct PrepareBucketsJob : IJob
 	}
 }
 
-[ComputeJobOptimization]
+[BurstCompile]
 public struct PrepareMinionCollisionJob : IJobParallelFor
 {
 	[ReadOnly]
-	public ComponentDataArray<UnitTransformData> 	transforms;
+	public NativeArray<UnitTransformData> 	transforms;
 
 	[ReadOnly]
-	public ComponentDataArray<MinionBitmask> 		minionBitmask;
+	public NativeArray<MinionBitmask> 		minionBitmask;
 	[ReadOnly]
-	public EntityArray 								entities;
+	public NativeArray<Entity> 								entities;
 
 	public NativeArray<UnitTransformData> 			transformsArray;
 	public NativeArray<MinionBitmask> 				minionBitmaskArray;
@@ -51,7 +52,7 @@ public struct PrepareMinionCollisionJob : IJobParallelFor
 }
 
 
-[ComputeJobOptimization]
+[BurstCompile]
 public struct MinionCollisionJob : IJobParallelFor
 {
 	[ReadOnly]
@@ -66,8 +67,8 @@ public struct MinionCollisionJob : IJobParallelFor
 	[ReadOnly]
 	public NativeMultiHashMap<int, int> buckets;
 
-	public ComponentDataArray<RigidbodyData> minionVelocities;
-	public ComponentDataArray<MinionAttackData> minionAttackData;
+	public NativeArray<RigidbodyData> minionVelocities;
+	public NativeArray<MinionAttackData> minionAttackData;
 	
 	[ReadOnly]
 	public float dt;

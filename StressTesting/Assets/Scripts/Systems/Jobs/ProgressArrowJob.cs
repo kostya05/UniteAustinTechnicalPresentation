@@ -4,20 +4,20 @@ using Unity.Mathematics;
 using UnityEngine;
 using Unity.Entities;
 
-//[ComputeJobOptimization]
+//[BurstCompile]
 public struct ProgressArrowJob : IJobParallelFor
 {
-	public ComponentDataArray<ArrowData> arrows;
+	public NativeArray<ArrowData> arrows;
 	[ReadOnly]
-	public EntityArray arrowEntities;
+	public NativeArray<Entity> arrowEntities;
 
 	[ReadOnly]
 	public NativeMultiHashMap<int, int> buckets;
 
-	[ReadOnly]
-	public ComponentDataArray<UnitTransformData> allMinionTransforms;
-	[ReadOnly]
-	public ComponentDataArray<MinionBitmask> minionConstData;
+	[ReadOnly, DeallocateOnJobCompletion]
+	public NativeArray<UnitTransformData> allMinionTransforms;
+	[ReadOnly, DeallocateOnJobCompletion]
+	public NativeArray<MinionBitmask> minionConstData;
 
 	
 	public NativeQueue<AttackCommand>.Concurrent AttackCommands;
@@ -25,8 +25,8 @@ public struct ProgressArrowJob : IJobParallelFor
 
 	public NativeArray<RaycastCommand> raycastCommands;
 
-	[ReadOnly]
-	public EntityArray minionEntities;
+	[ReadOnly, DeallocateOnJobCompletion]
+	public NativeArray<Entity> minionEntities;
 
 	[ReadOnly]
 	public float dt;

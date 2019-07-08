@@ -1,25 +1,27 @@
-﻿using Unity.Collections;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using Unity.Entities;
 
-[ComputeJobOptimization]
+[BurstCompile]
 public struct ArcherJob : IJobParallelFor
 {
 	public NativeQueue<ArrowData>.Concurrent createdArrowsQueue;
 
-	public ComponentDataArray<MinionData> archers;
+	[DeallocateOnJobCompletion]
+	public NativeArray<MinionData> archers;
 
-	[ReadOnly]
-	public ComponentDataArray<UnitTransformData> transforms;
+	[ReadOnly, DeallocateOnJobCompletion]
+	public NativeArray<UnitTransformData> transforms;
 
 	[ReadOnly]
 	public ComponentDataFromEntity<FormationData> formations;
 	[ReadOnly]
 	public ComponentDataFromEntity<FormationClosestData> closestFormationsFromEntity;
-	[ReadOnly]
-	public ComponentDataArray<MinionBitmask> minionConstData;
+	[ReadOnly, DeallocateOnJobCompletion]
+	public NativeArray<MinionBitmask> minionConstData;
 
 	[ReadOnly]
 	public int randomizer;

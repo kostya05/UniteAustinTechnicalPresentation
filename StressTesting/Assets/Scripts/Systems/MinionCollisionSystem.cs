@@ -6,20 +6,19 @@ using Unity.Entities;
 [UpdateAfter(typeof(FormationIntegritySystem))]
 public class MinionCollisionSystem : JobComponentSystem
 {
-	[Inject]
 	private MinionSystem minionSystem;
 
 	public struct Minions
 	{
 		[ReadOnly]
-		public ComponentDataArray<AliveMinionData> aliveMinionsFilter;
+		public NativeArray<AliveMinionData> aliveMinionsFilter;
 		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
-		public ComponentDataArray<RigidbodyData> velocities;
+		public NativeArray<UnitTransformData> transforms;
+		public NativeArray<RigidbodyData> velocities;
 		[ReadOnly]
-		public ComponentDataArray<MinionBitmask> bitmask;
-		public ComponentDataArray<MinionAttackData> attackData;
-		public EntityArray entities;
+		public NativeArray<MinionBitmask> bitmask;
+		public NativeArray<MinionAttackData> attackData;
+		public NativeArray<Entity> entities;
 
 		public int Length;
 	}
@@ -31,8 +30,10 @@ public class MinionCollisionSystem : JobComponentSystem
 	[Inject]
 	private Minions minions;
 
-	protected override void OnCreateManager(int capacity)
+	protected override void OnCreate()
 	{
+		minionSystem = World.GetOrCreateSystem<MinionSystem>();
+		
 		m_Transforms = new NativeList<UnitTransformData>(Allocator.Persistent);
 		m_Entities = new NativeList<Entity>(Allocator.Persistent);
 		m_Bitmasks = new NativeList<MinionBitmask>(Allocator.Persistent);

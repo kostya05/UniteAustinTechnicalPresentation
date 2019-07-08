@@ -3,6 +3,7 @@ using Unity.Collections;
 using UnityEngine;
 using Unity.Entities;
 using Unity.Jobs;
+using Unity.Mathematics;
 
 [UpdateAfter(typeof(UnitLifecycleManager))]
 public class FormationAudioSourceManager : JobComponentSystem
@@ -19,24 +20,13 @@ public class FormationAudioSourceManager : JobComponentSystem
 		public Entity FormationEntity;
 	}
 
-	public struct Formations
-	{
-		[ReadOnly]
-		public ComponentDataArray<FormationData> data;
-		[ReadOnly]
-		public EntityArray entities;
+	private EntityQuery formationsQuery;
 
-		public int Length;
-	}
+	//[Inject]
+	//private ComponentDataFromEntity<FormationIntegrityData> formationIntegrityDataFromEntity;
 
-	[Inject]
-	private Formations formations;
-
-	[Inject]
-	private ComponentDataFromEntity<FormationIntegrityData> formationIntegrityDataFromEntity;
-
-	[Inject]
-	private ComponentDataFromEntity<FormationData> formationDataFromEntity;
+	//[Inject]
+	//private ComponentDataFromEntity<FormationData> formationDataFromEntity;
 
 	private const int AudioSourcePoolSize = 6;
 
@@ -47,7 +37,7 @@ public class FormationAudioSourceManager : JobComponentSystem
 	private readonly List<AudioSourceFormation> usedAudioSources = new List<AudioSourceFormation>();
 	private float maxDist;
 
-	private readonly List<FormationDistance> closestFormations = new List<FormationDistance>();
+	private List<FormationDistance> closestFormations = new List<FormationDistance>();
 
 	private const string IntroEndedEvent = "INTRO_ENDED";
 	private const string OutroStartedEvent = "OUTRO_STARTED";
@@ -69,6 +59,32 @@ public class FormationAudioSourceManager : JobComponentSystem
 			audioSources.Add(data);
 		}
 	}
+	
+	private struct FormationAudioJob : IJobForEachWithEntity<FormationData>
+	{
+		public NativeList<FormationDistance> closestFormations;
+		
+		public float3 curCameraPos;
+		public float maxDist;
+		
+		public void Execute(Entity entity, int index, [ReadOnly]ref FormationData formation)
+		{
+			if (formation.FormationState == FormationData.State.AllDead) 
+				return;
+			var dist = math.lengthsq(curCameraPos - formation.Position);
+			if (dist < maxDist) 
+				closestFormations.Add(new FormationDistance
+				{
+					Dist = dist, 
+					FormationEntity = entity
+				});
+		}
+	}
+
+	protected override void OnCreate()
+	{
+		formationsQuery = GetEntityQuery(ComponentType.ReadOnly<FormationData>());
+	}
 
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
@@ -80,7 +96,9 @@ public class FormationAudioSourceManager : JobComponentSystem
 			AudioSystem.SubscribeOnce(OutroEndedEvent, EnableFormationSounds);
 		}
 
-		if (!isFormationSoundEnabled || formations.Length == 0) return inputDeps;
+		var length = formationsQuery.CalculateLength();
+		if (!isFormationSoundEnabled || length == 0) 
+			return inputDeps;
 
 		if (audioSources == null)
 		{
@@ -95,21 +113,25 @@ public class FormationAudioSourceManager : JobComponentSystem
 		}
 
 		var curCamera = Camera.main;
-		if (curCamera == null) return inputDeps;
+		if (curCamera == null) 
+			return inputDeps;
 		var curCameraPos = curCamera.transform.position;
 
 		// Might want to consider jobifying this instead
 		inputDeps.Complete();
 
 		closestFormations.Clear();
-		for (var i = 0; i < formations.Length; i++)
+		var job = new FormationAudioJob
 		{
-			var formation = formations.data[i];
-			if (formation.FormationState == FormationData.State.AllDead) continue;
-			var dist = (curCameraPos - (Vector3)formation.Position).sqrMagnitude;
-			if (dist < maxDist) closestFormations.Add(new FormationDistance() {Dist = dist, FormationEntity = formations.entities[i] });
-		}
+			closestFormations = new NativeList<FormationDistance>(Allocator.TempJob),
+			curCameraPos = curCameraPos,
+			maxDist = maxDist
+			
+		};
+		job.Schedule(formationsQuery, inputDeps).Complete();
 
+		closestFormations.AddRange(job.closestFormations.AsArray());
+		job.closestFormations.Dispose();
 		closestFormations.Sort((fd1, fd2) => (fd1.Dist < fd2.Dist) ? -1 : ((fd1.Dist > fd2.Dist) ? 1 : 0));
 		
 		for (var i = usedAudioSources.Count - 1; i >= 0; i--)
@@ -132,6 +154,9 @@ public class FormationAudioSourceManager : JobComponentSystem
 			}
 		}
 		
+		
+		var formationDataFromEntity = GetComponentDataFromEntity<FormationData>();
+		var formationIntegrityDataFromEntity = GetComponentDataFromEntity<FormationIntegrityData>();
 		for (var i = 0; (i < closestFormations.Count) && (i < AudioSourcePoolSize); i++)
 		{
 			AudioSourceFormation found = null;

@@ -11,21 +11,29 @@ public class CrowdAgentsToTransformSystem : JobComponentSystem
     struct CrowdGroup
     {
         [ReadOnly]
-        public ComponentDataArray<CrowdAgent> agents;
-
+        public NativeArray<CrowdAgent> agents;
+        
         public TransformAccessArray agentTransforms;
 
-        [ReadOnly]
-        public ComponentDataArray<WriteToTransformMarker> m_WriteToTrasformFlag;
+        public CrowdGroup(EntityQuery crowdQuery)
+        {
+            agents = crowdQuery.ToComponentDataArray<CrowdAgent>(Allocator.TempJob);
+            agentTransforms = crowdQuery.GetTransformAccessArray();
+        }
     }
 
-    [Inject]
-    CrowdGroup m_Crowd;
+    EntityQuery m_CrowdQuery;
+
+    protected override void OnCreate()
+    {
+        m_CrowdQuery = GetEntityQuery(ComponentType.ReadOnly<CrowdAgent>(),
+            ComponentType.ReadOnly<WriteToTransformMarker>(), typeof(Transform));
+    }
 
     struct WriteCrowdAgentsToTransformsJob : IJobParallelForTransform
     {
-        [ReadOnly]
-        public ComponentDataArray<CrowdAgent> crowdAgents;
+        [ReadOnly, DeallocateOnJobCompletion]
+        public NativeArray<CrowdAgent> crowdAgents;
 
         public void Execute(int index, TransformAccess transform)
         {
@@ -38,6 +46,7 @@ public class CrowdAgentsToTransformSystem : JobComponentSystem
 
     protected override JobHandle OnUpdate(JobHandle inputDeps)
     {
+        var m_Crowd = new CrowdGroup(m_CrowdQuery);
         WriteCrowdAgentsToTransformsJob writeJob;
         writeJob.crowdAgents = m_Crowd.agents;
         return writeJob.Schedule(m_Crowd.agentTransforms, inputDeps);

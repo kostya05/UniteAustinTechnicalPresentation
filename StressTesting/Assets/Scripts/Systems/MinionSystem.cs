@@ -11,18 +11,18 @@ public class MinionSystem : JobComponentSystem
 	public struct Minions
 	{
 		[ReadOnly]
-		public ComponentDataArray<AliveMinionData> aliveMinionsFilter;
+		public NativeArray<AliveMinionData> aliveMinionsFilter;
 		[ReadOnly]
-		public ComponentDataArray<MinionTarget> targets;
-		public ComponentDataArray<MinionData> minions;
-		public ComponentDataArray<UnitTransformData> transforms;
-		public ComponentDataArray<RigidbodyData> velocities;
-		public ComponentDataArray<TextureAnimatorData> animationData;
-		public ComponentDataArray<MinionBitmask> bitmask;
-		public ComponentDataArray<NavMeshLocationComponent> navMeshLocations;
-		public ComponentDataArray<MinionAttackData> attackData;
-		public EntityArray entities;
-		public ComponentDataArray<IndexInFormationData> indicesInFormation;
+		public NativeArray<MinionTarget> targets;
+		public NativeArray<MinionData> minions;
+		public NativeArray<UnitTransformData> transforms;
+		public NativeArray<RigidbodyData> velocities;
+		public NativeArray<TextureAnimatorData> animationData;
+		public NativeArray<MinionBitmask> bitmask;
+		public NativeArray<NavMeshLocationComponent> navMeshLocations;
+		public NativeArray<MinionAttackData> attackData;
+		public NativeArray<Entity> entities;
+		public NativeArray<IndexInFormationData> indicesInFormation;
 
 		public int Length;
 	}
@@ -30,15 +30,14 @@ public class MinionSystem : JobComponentSystem
 	[Inject]
 	private Minions minions;
 	
-	[Inject]
-	private ComponentDataFromEntity<FormationClosestData> formationClosestDataFromEntity;
+	//[Inject]
+	//private ComponentDataFromEntity<FormationClosestData> formationClosestDataFromEntity;
 
-	[Inject]
-	private ComponentDataFromEntity<FormationData> formationsFromEntity;
+	//[Inject]
+	//private ComponentDataFromEntity<FormationData> formationsFromEntity;
 	
 	public NativeMultiHashMap<int, int> CollisionBuckets;
 
-	[Inject]
 	private FormationSystem formationSystem;
 
 	public const int fieldWidth = 4000;
@@ -48,8 +47,9 @@ public class MinionSystem : JobComponentSystem
 	public const float step = 2f;
 	
 	NavMeshQuery moveLocationQuery;
-	protected override void OnCreateManager(int capacity)
+	protected override void OnCreate()
 	{
+		formationSystem = World.GetOrCreateSystem<FormationSystem>();
 		var navMeshWorld = NavMeshWorld.GetDefaultWorld();
 		moveLocationQuery = new NavMeshQuery(navMeshWorld, Allocator.Persistent);
 	}
@@ -69,7 +69,7 @@ public class MinionSystem : JobComponentSystem
 
 	public void ForceInjection()
 	{
-		UpdateInjectedComponentGroups();
+		//UpdateInjectedComponentGroups();
 	}
 
 	protected override JobHandle OnUpdate(JobHandle inputDeps)

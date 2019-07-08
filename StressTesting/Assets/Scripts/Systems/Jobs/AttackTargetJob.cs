@@ -1,32 +1,19 @@
-﻿using Unity.Collections;
-using Unity.Jobs;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Entities;
 
-[ComputeJobOptimization]
-public struct AttackTargetJob : IJobParallelFor
+[BurstCompile]
+public struct AttackTargetJob : IJobForEachWithEntity<MinionData, MinionAttackData, UnitTransformData>
 {
-	[ReadOnly]
-	public ComponentDataArray<MinionAttackData> minionAttacks;
-
-	public ComponentDataArray<MinionData> minions;
-
-	[ReadOnly]
-	public EntityArray entities;
-
-	[ReadOnly]
-	public ComponentDataArray<UnitTransformData> minionTransforms;
-
 	[ReadOnly]
 	public float dt;
 
 	public NativeQueue<AttackCommand>.Concurrent AttackCommands;
 
-	public void Execute(int index)
+	public void Execute(Entity entity, int index, ref MinionData minion, ref MinionAttackData minionAttack, [ReadOnly]ref UnitTransformData transformData)
 	{
-		var minion = minions[index];
-		var minionAttack = minionAttacks[index];
 
-		if (minionTransforms[index].UnitType == 2)
+		if (transformData.UnitType == 2)
 		{
 			return;
 		}
@@ -40,15 +27,15 @@ public struct AttackTargetJob : IJobParallelFor
 
 		if (minion.attackCycle + dt >= MinionData.HitTime && prevAttackCycle < MinionData.HitTime)
 		{
-			AttackCommands.Enqueue(new AttackCommand(entities[index], minionAttack.targetEntity, 25));
+			AttackCommands.Enqueue(new AttackCommand(entity, minionAttack.targetEntity, 25));
 		}
 		minion.attackCycle += dt;
 		if (minion.attackCycle > MinionData.AttackTime)
 		{
-			if (minionAttack.targetEntity == new Entity()) minion.attackCycle = -1;
-			else minion.attackCycle -= MinionData.AttackTime;
+			if (minionAttack.targetEntity == new Entity()) 
+				minion.attackCycle = -1;
+			else 
+				minion.attackCycle -= MinionData.AttackTime;
 		}
-
-		minions[index] = minion;
 	}
 }

@@ -1,4 +1,5 @@
-﻿using Unity.Collections;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
@@ -13,20 +14,20 @@ public class FormationPathFindSystem : JobComponentSystem
 {
     public struct Formations
     {
-        public ComponentDataArray<FormationData> data;
-        public ComponentDataArray<CrowdAgentNavigator> navigators;
-        public ComponentDataArray<FormationIntegrityData> integrityData;
+        public NativeArray<FormationData> data;
+        public NativeArray<CrowdAgentNavigator> navigators;
+        public NativeArray<FormationIntegrityData> integrityData;
 
         public int Length;
     }
 
     public struct Minions
     {
-        public ComponentDataArray<MinionTarget> targets;
-        public ComponentDataArray<MinionPathData> pathsInfo;
+        public NativeArray<MinionTarget> targets;
+        public NativeArray<MinionPathData> pathsInfo;
         public FixedArrayArray<float3> paths;
-        public ComponentDataArray<NavMeshLocationComponent> navMeshLocation;
-        public EntityArray entities;
+        public NativeArray<NavMeshLocationComponent> navMeshLocation;
+        public NativeArray<Entity> entities;
         public int Length;
     }
     [Inject]
@@ -44,7 +45,7 @@ public class FormationPathFindSystem : JobComponentSystem
     
     [Inject]
     private ComponentDataFromEntity<FormationIntegrityData> formationIntegrityData;
-    [Inject]
+    
     EntityManager entityManager;
 
     //private NativeArray<float> costs;
@@ -62,9 +63,11 @@ public class FormationPathFindSystem : JobComponentSystem
     private NativeList<int> queryIndexFree;
     private NativeList<Entity> findingEntities;
 
-    protected override void OnCreateManager(int capacity)
+    protected override void OnCreate()
     {
-        base.OnCreateManager(capacity);
+        base.OnCreate();
+
+        entityManager = EntityManager;
 
         //costs = new NativeArray<float>(32, Allocator.Persistent);
         //for (int i = 0; i < 32; i++) costs[i] = 1;
@@ -113,7 +116,7 @@ public class FormationPathFindSystem : JobComponentSystem
         var pathFollow = new MinionFollowPath
         {
             entities = minions.entities,
-            newPathQueries = newPathQueries,
+            newPathQueries = newPathQueries.ToConcurrent(),
             pathsInfo = minions.pathsInfo,
             minionPaths = minions.paths,
             minionTargets = minions.targets,
@@ -196,7 +199,7 @@ public class FormationPathFindSystem : JobComponentSystem
         return JobHandle.CombineDependencies(assignFence, pathFindFence);
     }
 
-    [ComputeJobOptimization]
+    [BurstCompile]
     private struct MinionPathFind : IJob
     {
         public NavMeshQuery query;
@@ -302,17 +305,17 @@ public class FormationPathFindSystem : JobComponentSystem
             pathsInfo[entity] = pathInfo;
         }
     }
-    [ComputeJobOptimization]
+    [BurstCompile]
     private struct MinionFollowPath : IJobParallelFor
     {
         [ReadOnly]
-        public EntityArray entities;
+        public NativeArray<Entity> entities;
         public NativeQueue<Entity>.Concurrent newPathQueries;
-        public ComponentDataArray<MinionPathData> pathsInfo;
+        public NativeArray<MinionPathData> pathsInfo;
         public FixedArrayArray<float3> minionPaths;
-        public ComponentDataArray<MinionTarget> minionTargets;
+        public NativeArray<MinionTarget> minionTargets;
 
-        public ComponentDataArray<NavMeshLocationComponent> navMeshLocation;
+        public NativeArray<NavMeshLocationComponent> navMeshLocation;
 
         public int maxPathSize;
 
@@ -372,16 +375,16 @@ public class FormationPathFindSystem : JobComponentSystem
         }
     }
 
-    [ComputeJobOptimization]
+    [BurstCompile]
     private struct AssignFormationSpeed : IJobParallelFor
     {
         [ReadOnly]
-        public ComponentDataArray<FormationData> formations;
+        public NativeArray<FormationData> formations;
 
-        public ComponentDataArray<CrowdAgentNavigator> navigators;
+        public NativeArray<CrowdAgentNavigator> navigators;
 
         [ReadOnly]
-        public ComponentDataArray<FormationIntegrityData> integrityData;
+        public NativeArray<FormationIntegrityData> integrityData;
 
         public void Execute(int index)
         {

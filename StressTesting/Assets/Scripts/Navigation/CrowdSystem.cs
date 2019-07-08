@@ -18,16 +18,47 @@ public partial class CrowdSystem : JobComponentSystem
 
     struct CrowdGroup
     {
-        public ComponentDataArray<CrowdAgent> agents;
-        public ComponentDataArray<CrowdAgentNavigator> agentNavigators;
-        public FixedArrayArray<PolygonId> paths;
+        public NativeArray<CrowdAgent> agents;
+        public NativeArray<CrowdAgentNavigator> agentNavigators;
+
+        public NativeArray<ArchetypeChunk> Chunks;
+
+        public CrowdGroup(EntityQuery mCrowdQuery)
+        {
+            agents = mCrowdQuery.ToComponentDataArray<CrowdAgent>(Allocator.TempJob);
+            agentNavigators = mCrowdQuery.ToComponentDataArray<CrowdAgentNavigator>(Allocator.TempJob);
+            
+            Chunks = mCrowdQuery.CreateArchetypeChunkArray(Allocator.TempJob);
+        }
+
+        public void Free()
+        {
+            agents.Dispose();
+            agents.Dispose();
+            agentNavigators.Dispose();
+            Chunks.Dispose();
+        }
+    }
+    
+    private struct DeallocateJob : IJob
+    {
+        [DeallocateOnJobCompletion]
+        public NativeArray<CrowdAgent> agents;
+        [DeallocateOnJobCompletion]
+        public NativeArray<CrowdAgentNavigator> agentNavigators;
+        [DeallocateOnJobCompletion]
+        public NativeArray<ArchetypeChunk> Chunks;
+        
+        public void Execute()
+        {
+            
+        }
     }
 
-    [Inject]
-    CrowdGroup m_Crowd;
+    EntityQuery m_CrowdQuery;
 
-    NativeList<bool1> m_PlanPathForAgent;
-    NativeList<bool1> m_EmptyPlanPathForAgent;
+    NativeList<bool> m_PlanPathForAgent;
+    NativeList<bool> m_EmptyPlanPathForAgent;
     NativeList<uint> m_PathRequestIdForAgent;
     NativeList<PathQueryQueueEcs.RequestEcs> m_PathRequests;
     NativeArray<int> m_PathRequestsRange;
@@ -55,12 +86,13 @@ public partial class CrowdSystem : JobComponentSystem
     const int k_Count = 1;
     const int k_DataSize = 2;
 
-    protected override void OnCreateManager(int capacity)
+    protected override void OnCreate()
     {
-        base.OnCreateManager(capacity);
+        base.OnCreate();
 
-        m_InitialCapacity = capacity;
-        Initialize(capacity);
+        m_CrowdQuery = GetEntityQuery(ComponentType.ReadWrite<CrowdAgent>(),
+            ComponentType.ReadWrite<CrowdAgentNavigator>(), ComponentType.ChunkComponent<PolygonIdBuffer>());
+        m_InitialCapacity = 1000;
     }
 
     protected override void OnDestroyManager()
@@ -76,8 +108,8 @@ public partial class CrowdSystem : JobComponentSystem
         var queryCount = world.IsValid() ? k_QueryCount : 0;
 
         var agentCount = world.IsValid() ? capacity : 0;
-        m_PlanPathForAgent = new NativeList<bool1>(agentCount, Allocator.Persistent);
-        m_EmptyPlanPathForAgent = new NativeList<bool1>(0, Allocator.Persistent);
+        m_PlanPathForAgent = new NativeList<bool>(agentCount, Allocator.Persistent);
+        m_EmptyPlanPathForAgent = new NativeList<bool>(0, Allocator.Persistent);
         m_PathRequestIdForAgent = new NativeList<uint>(agentCount, Allocator.Persistent);
         m_PathRequests = new NativeList<PathQueryQueueEcs.RequestEcs>(k_PathRequestsPerTick, Allocator.Persistent);
         m_PathRequests.ResizeUninitialized(k_PathRequestsPerTick);
@@ -202,8 +234,12 @@ public partial class CrowdSystem : JobComponentSystem
             }
         }
 
+        var m_Crowd = new CrowdGroup(m_CrowdQuery);
         if (m_Crowd.agentNavigators.Length == 0)
+        {
+            m_Crowd.Free();
             return inputDeps;
+        }
 
         var missingAgents = m_Crowd.agentNavigators.Length - m_PlanPathForAgent.Length;
         if (missingAgents > 0)
@@ -349,27 +385,30 @@ public partial class CrowdSystem : JobComponentSystem
         var afterPathsAdded = afterQueriesProcessed;
         foreach (var queue in m_QueryQueues)
         {
-            var resultsJob = new ApplyQueryResultsJob { queryQueue = queue, paths = m_Crowd.paths, agentNavigators = m_Crowd.agentNavigators };
+            var resultsJob = new ApplyQueryResultsJob
+            {
+                PolygonIdBuffer = GetArchetypeChunkBufferType<PolygonIdBuffer>(),
+                paths = m_Crowd.Chunks,
+                queryQueue = queue, 
+                agentNavigators = m_Crowd.agentNavigators
+            };
             afterPathsAdded = resultsJob.Schedule(afterPathsAdded);
             navMeshWorld.AddDependency(afterPathsAdded);
         }
 
-        var advance = new AdvancePathJob { agents = m_Crowd.agents, agentNavigators = m_Crowd.agentNavigators, paths = m_Crowd.paths };
-        var afterPathsTrimmed = advance.Schedule(m_Crowd.agents.Length, k_AgentsBatchSize, afterPathsAdded);
+        var advance = new AdvancePathJob();
+        var afterPathsTrimmed = advance.Schedule(m_CrowdQuery, afterPathsAdded);
 
         const int maxCornersPerAgent = 2;
         var totalCornersBuffer = m_Crowd.agents.Length * maxCornersPerAgent;
         var vel = new UpdateVelocityJob
         {
             query = m_NavMeshQuery,
-            agents = m_Crowd.agents,
-            agentNavigators = m_Crowd.agentNavigators,
-            paths = m_Crowd.paths,
             straightPath = new NativeArray<NavMeshLocation>(totalCornersBuffer, Allocator.TempJob),
             straightPathFlags = new NativeArray<StraightPathFlags>(totalCornersBuffer, Allocator.TempJob),
             vertexSide = new NativeArray<float>(totalCornersBuffer, Allocator.TempJob)
         };
-        var afterVelocitiesUpdated = vel.Schedule(m_Crowd.agents.Length, k_AgentsBatchSize, afterPathsTrimmed);
+        var afterVelocitiesUpdated = vel.Schedule(m_CrowdQuery, afterPathsTrimmed);
         navMeshWorld.AddDependency(afterVelocitiesUpdated);
 
         var move = new MoveLocationsJob { query = m_NavMeshQuery, agents = m_Crowd.agents, dt = Time.deltaTime };
@@ -397,7 +436,12 @@ public partial class CrowdSystem : JobComponentSystem
             navMeshWorld.AddDependency(cleanupFence);
         }
 
-        return afterAgentsMoved;
+        return new DeallocateJob
+        {
+            agents = m_Crowd.agents,
+            Chunks = m_Crowd.Chunks,
+            agentNavigators = m_Crowd.agentNavigators
+        }.Schedule(afterAgentsMoved);
     }
 
     public void AddAgentResources(int n)
@@ -415,7 +459,7 @@ public partial class CrowdSystem : JobComponentSystem
         }
     }
 
-    void DrawDebug()
+    /*void DrawDebug()
     {
         var activeAgents = 0;
         for (var i = 0; i < m_Crowd.agents.Length; ++i)
@@ -463,7 +507,7 @@ public partial class CrowdSystem : JobComponentSystem
             Debug.Log("CS Agents active= " + activeAgents + " / total=" + m_Crowd.agents.Length);
         }
 #endif
-    }
+    }*/
 
     void DrawRequestsDebug()
     {

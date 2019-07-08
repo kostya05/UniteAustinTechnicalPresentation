@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Unity.Entities;
 
-public class RenderingDataWrapper : SharedComponentDataWrapper<RenderingData>
+public class RenderingDataWrapper : SharedComponentDataProxy<RenderingData>
 {
 	
 }

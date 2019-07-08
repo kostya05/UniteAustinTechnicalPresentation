@@ -1,4 +1,5 @@
-﻿using Unity.Collections;
+﻿using Unity.Burst;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
@@ -9,12 +10,17 @@ public class ArrowRenderSystem : JobComponentSystem
 {
 	public struct Arrows
 	{
-		public ComponentDataArray<ArrowData> data;
+		public NativeArray<ArrowData> data;
 		public int Length;
+
+		public Arrows(EntityQuery entityQuery)
+		{
+			Length = entityQuery.CalculateLength();
+			data = entityQuery.ToComponentDataArray<ArrowData>(Allocator.TempJob);
+		}
 	}
 
-	[Inject]
-	private Arrows arrows;
+	private EntityQuery arrowsQuery;
 
 	private Material arrowMaterial;
 	private Mesh arrowMesh;
@@ -42,6 +48,11 @@ public class ArrowRenderSystem : JobComponentSystem
 		previousFrameHandle.Complete();
 		if (transformationMatrices.IsCreated) transformationMatrices.Dispose();
 		if (indirectArgs.IsCreated) indirectArgs.Dispose();
+	}
+
+	protected override void OnCreate()
+	{
+		arrowsQuery = GetEntityQuery(ComponentType.ReadOnly<ArrowData>());
 	}
 
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
@@ -84,6 +95,7 @@ public class ArrowRenderSystem : JobComponentSystem
 
 		Graphics.DrawMeshInstancedIndirect(arrowMesh, 0, arrowMaterial, new Bounds(Vector3.zero, 10000000 * Vector3.one), argsBuffer);
 
+		var arrows = new Arrows(arrowsQuery);
 		prevLength = arrows.Length;
 		var calculateMatricesJob = new CalculateArrowTransformationMatrix
 		{
@@ -97,11 +109,11 @@ public class ArrowRenderSystem : JobComponentSystem
 		return calculateMatricesFence;
 	}
 
-	[ComputeJobOptimization]
+	[BurstCompile]
 	private struct CalculateArrowTransformationMatrix : IJobParallelFor
 	{
-		[ReadOnly]
-		public ComponentDataArray<ArrowData> arrows;
+		[ReadOnly, DeallocateOnJobCompletion]
+		public NativeArray<ArrowData> arrows;
 		[NativeFixedLength(ArrowCapacity)]
 		public NativeArray<Matrix4x4> transformationMatrices;
 

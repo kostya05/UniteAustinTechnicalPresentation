@@ -6,7 +6,7 @@ using Unity.Entities;
 public struct PrepareRaycasts : IJobParallelFor
 {
 	[ReadOnly]
-	public ComponentDataArray<UnitTransformData> transforms;
+	public NativeArray<UnitTransformData> transforms;
 
 	public NativeArray<RaycastCommand> raycastCommands;
 

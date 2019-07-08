@@ -1,10 +1,12 @@
 ﻿using UnityEngine;
 using Unity.Entities;
 using System.Collections.Generic;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine.Profiling;
+using Random = UnityEngine.Random;
 
 // TODO there will be a sexy events system
 [UpdateAfter(typeof(CommandSystem))]
@@ -45,19 +47,29 @@ public class SpellSystem : JobComponentSystem
 
 	public struct Rigidbodies
 	{
-		public ComponentDataArray<UnitTransformData> transforms;
-		public ComponentDataArray<RigidbodyData> rigidbodies;
-		public EntityArray entities;
+		public NativeArray<UnitTransformData> transforms;
+		public NativeArray<RigidbodyData> rigidbodies;
+		public NativeArray<Entity> entities;
 		public int Length;
+
+		public Rigidbodies(EntityQuery entityQuery) : this()
+		{
+			Length = entityQuery.CalculateLength();
+			if(Length == 0)
+				return;
+
+			entities = entityQuery.ToEntityArray(Allocator.TempJob);
+			transforms = entityQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob);
+			rigidbodies = entityQuery.ToComponentDataArray<RigidbodyData>(Allocator.TempJob);
+		}
 	}
 
 	//public struct Formations
 	//{
-	//	public ComponentDataArray<FormationData> formations;
+	//	public NativeArray<FormationData> formations;
 	//}
 
-	[Inject]
-	private Rigidbodies rigidbodies;
+	private EntityQuery rigidbodiesQuery;
 
 	//[Inject]
 	//private Formations formations;
@@ -105,12 +117,12 @@ public class SpellSystem : JobComponentSystem
 
 	public JobHandle CombinedExplosionHandle;
 
-	[Inject]
 	private UnitLifecycleManager unitLifecycleManager;
 
-	protected override void OnCreateManager(int capacity)
+	protected override void OnCreate()
 	{
-		base.OnCreateManager(capacity);
+		base.OnCreate();
+		unitLifecycleManager = World.GetOrCreateSystem<UnitLifecycleManager>();
 
 		if (SpellExplosionsQueue == null)
 			SpellExplosionsQueue = new List<SpellExplosion>();
@@ -118,6 +130,8 @@ public class SpellSystem : JobComponentSystem
 			SpellExplosionsQueue.Clear();
 
 		spellData = new NativeList<SpellData>(20, Allocator.Persistent);
+		rigidbodiesQuery = GetEntityQuery(ComponentType.ReadOnly<UnitTransformData>(),
+			ComponentType.ReadWrite<RigidbodyData>());
 	}
 
 	protected override void OnDestroyManager()
@@ -182,21 +196,22 @@ public class SpellSystem : JobComponentSystem
 		public float2 blastDirectionModifier;
 		public float3 explosionPosition;
 		public float explosionDistance;
-		public bool1 useInvertedDistance;
+		public bool useInvertedDistance;
 		public float verticalComponentFactor;
 		public float randomHorizontal;
 	}
 
-	[ComputeJobOptimization]
+	[BurstCompile]
 	public struct ApplyExplosionJob : IJobParallelFor
 	{
-		[ReadOnly]
-		public ComponentDataArray<UnitTransformData> transforms;
+		[ReadOnly, DeallocateOnJobCompletion]
+		public NativeArray<UnitTransformData> transforms;
 
-		public ComponentDataArray<RigidbodyData> rigidbodies;
+		[DeallocateOnJobCompletion]
+		public NativeArray<RigidbodyData> rigidbodies;
 
-		[ReadOnly]
-		public EntityArray entities;
+		[ReadOnly, DeallocateOnJobCompletion]
+		public NativeArray<Entity> entities;
 
 		[ReadOnly]
 		public NativeArray<SpellData> spells;
@@ -250,6 +265,7 @@ public class SpellSystem : JobComponentSystem
 
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
+		var rigidbodies = new Rigidbodies(rigidbodiesQuery);
 		if (rigidbodies.Length == 0) return inputDeps;
 
 		if (Input.GetKeyDown(KeyCode.Alpha1))
@@ -335,7 +351,7 @@ public class SpellSystem : JobComponentSystem
 			var explosionJob = new ApplyExplosionJob()
 			{
 				entities = rigidbodies.entities,
-				entitiesForFlying = unitLifecycleManager.entitiesForFlying,
+				entitiesForFlying = unitLifecycleManager.entitiesForFlying.ToConcurrent(),
 				transforms = rigidbodies.transforms,
 				frameCount = Time.frameCount,
 				rigidbodies = rigidbodies.rigidbodies,

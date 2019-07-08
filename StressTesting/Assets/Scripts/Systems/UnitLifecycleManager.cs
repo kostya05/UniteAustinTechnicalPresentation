@@ -4,6 +4,7 @@ using Unity.Entities;
 using Assets.Instancing.Skinning.Scripts.ECS;
 using UnityEngine.Profiling;
 using System;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -12,42 +13,9 @@ using Unity.Mathematics;
 [UpdateAfter(typeof(SpellSystem))]
 public class UnitLifecycleManager : JobComponentSystem
 {
-	public struct Units
-	{
-		public ComponentDataArray<UnitTransformData> transform;
-		public ComponentDataArray<MinionTarget> targets;
-		public ComponentDataArray<RigidbodyData> rigidbodies;
-		public ComponentDataArray<TextureAnimatorData> animationData;
-		public ComponentDataArray<MinionData> data;
-		public ComponentDataArray<MinionPathData> pathsInfo;
-		public EntityArray entities;
-		public int Length;
-	}
-
-	public struct DyingUnits
-	{
-		public ComponentDataArray<DyingUnitData> dyingData;
-		public EntityArray entities;
-		public ComponentDataArray<UnitTransformData> transforms;
-		public int Length;
-	}
-
-	public struct DyingArrows
-	{
-		public ComponentDataArray<DyingUnitData> dyingData;
-		public EntityArray entities;
-		public ComponentDataArray<ArrowData> data;
-		public int Length;
-	}
-
-	[Inject]
-	private Units units;
-
-	[Inject]
-	private DyingUnits dyingUnits;
-
-	[Inject]
-	private DyingArrows dyingArrows;
+	private EntityQuery unitsQuery;
+	private EntityQuery dyingUnitsQuery;
+	private EntityQuery dyingArrowsQuery;
 
 	public NativeQueue<Entity> queueForKillingEntities;
 	public NativeQueue<Entity> deathQueue;
@@ -60,7 +28,6 @@ public class UnitLifecycleManager : JobComponentSystem
 
 	private const int DeathQueueSize = 80000;
 
-	[Inject]
 	private SpellSystem spellSystem;
 
 	private Queue<Entity> entitiesThatNeedToBeKilled = new Queue<Entity>(100000);
@@ -75,16 +42,51 @@ public class UnitLifecycleManager : JobComponentSystem
 		base.OnDestroyManager();
 	}
 
-	protected override void OnCreateManager(int capacity)
+	protected override void OnCreate()
 	{
-		base.OnCreateManager(capacity);
+		base.OnCreate();
+		spellSystem = World.GetOrCreateSystem<SpellSystem>();
+
+		dyingArrowsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<DyingUnitData>(),
+			ComponentType.ReadOnly<ArrowData>());
+
+		dyingUnitsQuery = GetEntityQuery(
+			ComponentType.ReadWrite<UnitTransformData>(),
+			ComponentType.ReadOnly<DyingUnitData>());
+
+		unitsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<MinionData>(),
+			ComponentType.ReadOnly<MinionPathData>(),
+			ComponentType.ReadOnly<TextureAnimatorData>(),
+			ComponentType.ReadOnly<RigidbodyData>(),
+			ComponentType.ReadOnly<MinionTarget>(),
+			ComponentType.ReadOnly<UnitTransformData>());
+		
 		if (!queueForKillingEntities.IsCreated) queueForKillingEntities = new NativeQueue<Entity>(Allocator.Persistent);
 		if (!entitiesForFlying.IsCreated) entitiesForFlying = new NativeQueue<Entity>(Allocator.Persistent);
 	}
+	
+	private struct KillingEntitiesJob : IJobForEachWithEntity<DyingUnitData>
+	{
+		public float Time;
+		public NativeQueue<Entity>.Concurrent queueForKillingEntities;
 
+		public void Execute(Entity entity, int index, [ReadOnly]ref DyingUnitData unitData)
+		{
+			if (Time > unitData.TimeAtWhichToExpire)
+			{
+				queueForKillingEntities.Enqueue(entity);
+			}
+		}
+	}
+	
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
-		if (units.entities.Length == 0) return inputDeps;
+		var length = unitsQuery.CalculateLength();
+		if (length == 0) 
+			return inputDeps;
+		
 		Profiler.BeginSample("Explosion wait");
 		spellSystem.CombinedExplosionHandle.Complete(); // TODO try to remove this 
 		Profiler.EndSample();
@@ -100,24 +102,20 @@ public class UnitLifecycleManager : JobComponentSystem
 			Spawner.Instance.SpawnArrow(data);
 		}
 
-		UpdateInjectedComponentGroups();
+		//UpdateInjectedComponentGroups();
 
 		var cleanupJob = new CleanupJob
 		{
-			deathQueue = deathQueue,
-			minionData = units.data,
-			entitites = units.entities
+			deathQueue = deathQueue.ToConcurrent()
 		};
 
 		var moveUnitsJob = new MoveUnitsBelowGround()
 		{
-			dyingUnitData = dyingUnits.dyingData,
-			transforms = dyingUnits.transforms,
 			time = Time.time
 		};
 
-		var cleanupJobFence = cleanupJob.Schedule(units.Length, SimulationState.BigBatchSize, inputDeps);
-		var moveUnitsBelowGroundFence = moveUnitsJob.Schedule(dyingUnits.Length, SimulationState.HugeBatchSize, spellSystem.CombinedExplosionHandle);
+		var cleanupJobFence = cleanupJob.Schedule(unitsQuery, inputDeps);
+		var moveUnitsBelowGroundFence = moveUnitsJob.Schedule(dyingUnitsQuery, spellSystem.CombinedExplosionHandle);
 
 		Profiler.EndSample();
 
@@ -127,36 +125,22 @@ public class UnitLifecycleManager : JobComponentSystem
 		Profiler.BeginSample("LifeCycleManager - Main Thread");
 
 		float time = Time.time;
-		if (dyingUnits.Length > 0)
-		{
-			for (int i = 0; i < dyingUnits.Length; i++)
-			{
-				if (time > dyingUnits.dyingData[i].TimeAtWhichToExpire)
-				{
-					var entityToKill = dyingUnits.entities[i];
-					queueForKillingEntities.Enqueue(entityToKill);
-				}
-				//else if (time > dyingData[i].TimeAtWhichToExpire - 2f)
-				//{
-				//	float t = (dyingData[i].TimeAtWhichToExpire - time) / 2f;
-				//	var transform = transforms[i];
-				//	transform.Position.y = math.lerp(dyingData[i].StartingYCoord, dyingData[i].StartingYCoord - 1f, t);
-				//	transforms[i] = transform;
-				//}
-			}
-		}
 
-		if (dyingArrows.Length > 0)
+		var queue = queueForKillingEntities.ToConcurrent();
+		
+		var h1 = new KillingEntitiesJob
 		{
-			for (int i = 0; i < dyingArrows.Length; i++)
-			{
-				if (time > dyingArrows.dyingData[i].TimeAtWhichToExpire)
-				{
-					var arrowToKill = dyingArrows.entities[i];
-					queueForKillingEntities.Enqueue(arrowToKill);
-				}
-			}
-		}
+			Time = time,
+			queueForKillingEntities = queue
+		}.Schedule(dyingUnitsQuery);
+		
+		var h2 = new KillingEntitiesJob
+		{
+			Time = time,
+			queueForKillingEntities = queue
+		}.Schedule(dyingArrowsQuery, h1);
+		
+		JobHandle.CompleteAll(ref h1, ref h2);
 
 		Profiler.EndSample();
 		Profiler.BeginSample("Queue processing");
@@ -240,45 +224,28 @@ public class UnitLifecycleManager : JobComponentSystem
 		return new JobHandle();
 	}
 
-	[ComputeJobOptimization]
-	private struct CleanupJob : IJobParallelFor
+	[BurstCompile]
+	private struct CleanupJob : IJobForEachWithEntity<MinionData>
 	{
-		[ReadOnly]
-		public ComponentDataArray<MinionData> minionData;
-		[ReadOnly]
-		public EntityArray entitites;
-
 		public NativeQueue<Entity>.Concurrent deathQueue;
 
-		public void Execute(int i)
+		public void Execute(Entity entity, int index, [ReadOnly]ref MinionData minionData)
 		{
-			if (minionData[i].Health <= 0)
-			{
-				deathQueue.Enqueue(entitites[i]);
-			}
+			if(minionData.Health <= 0)
+				deathQueue.Enqueue(entity);
 		}
 	}
 
-	[ComputeJobOptimization]
-	private struct MoveUnitsBelowGround : IJobParallelFor
+	[BurstCompile]
+	private struct MoveUnitsBelowGround : IJobForEach<DyingUnitData, UnitTransformData>
 	{
-		[ReadOnly]
-		public ComponentDataArray<DyingUnitData> dyingUnitData;
-
-		public ComponentDataArray<UnitTransformData> transforms;
-
 		public float time;
 
-		public void Execute(int i)
+		public void Execute([ReadOnly]ref DyingUnitData dyingData, ref UnitTransformData transform)
 		{
-			var dyingData = dyingUnitData[i];
-			var transform = transforms[i];
-
 			float t = (dyingData.TimeAtWhichToExpire - time) / 5f;
 			t = math.clamp(t, 0, 1);
 			transform.Position.y = math.lerp(dyingData.StartingYCoord - 0.8f, dyingData.StartingYCoord, t);
-
-			transforms[i] = transform;
 		}
 	}
 }

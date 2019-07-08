@@ -5,6 +5,6 @@ using System.Text;
 using System.Threading.Tasks;
 using Unity.Entities;
 
-public class SkeletonUnitDataWrapper : ComponentDataWrapper<SkeletonUnitData>
+public class SkeletonUnitDataWrapper : ComponentDataProxy<SkeletonUnitData>
 {
 }

@@ -1,3 +1,3 @@
 ﻿using Unity.Entities;
 
-public class TextureAnimatorDataComponent : ComponentDataWrapper<TextureAnimatorData> { }
+public class TextureAnimatorDataComponent : ComponentDataProxy<TextureAnimatorData> { }

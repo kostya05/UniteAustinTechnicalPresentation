@@ -83,7 +83,7 @@ public struct MinionPathData : IComponentData
 }
 
 
-public class MinionComponent : ComponentDataWrapper<MinionData>
+public class MinionComponent : ComponentDataProxy<MinionData>
 {
 	
 }

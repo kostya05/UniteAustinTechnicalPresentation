@@ -179,7 +179,7 @@ public class UnitEditor :  EditorWindow
 		Debug.DrawLine(agent.worldPosition, navigator.requestedDestination, Color.green, Time.deltaTime * 2);
 	}
 
-	public static void DrawUnitPaths(MinionPathData minionPathInfo, NativeSlice<float3> path)
+	public static void DrawUnitPaths(MinionPathData minionPathInfo, DynamicBuffer<PathPoint> path)
 	{
 		if (EditorApplication.isPaused) return;
 		if ((minionPathInfo.bitmasks & 4) == 0)
@@ -191,7 +191,7 @@ public class UnitEditor :  EditorWindow
 		for (int i = minionPathInfo.currentCornerIndex; i < minionPathInfo.pathSize; i++)
 		{
 			if (i < 1) continue;
-			Debug.DrawLine(path[i - 1], path[i], Color.green, Time.deltaTime * 2);
+			Debug.DrawLine(path[i - 1].Value, path[i].Value, Color.green, Time.deltaTime * 2);
 		}
 	}
 
@@ -306,9 +306,11 @@ public class UnitEditor :  EditorWindow
 		
 		if (DrawUnitPathFinding)
 		{
+			var paths = EditorHelperSystem.I.GetBufferFromEntity<PathPoint>(true);
 			for (int i = 0; i < EditorHelperSystem.I.minions.Length; i++)
 			{
-				DrawUnitPaths(EditorHelperSystem.I.minions.pathsInfo[i], EditorHelperSystem.I.minions.paths[i]);
+				var path = paths[EditorHelperSystem.I.minions.entities[i]];
+				DrawUnitPaths(EditorHelperSystem.I.minions.pathsInfo[i], path);
 			}
 		}
 		
@@ -390,65 +392,155 @@ public class EditorHelperSystem : JobComponentSystem
 {
 	public struct Minions
 	{
-		public ComponentDataArray<UnitTransformData> transforms;
-		public ComponentDataArray<MinionTarget> targets;
-		public ComponentDataArray<RigidbodyData> rigidbodies;
-		public ComponentDataArray<TextureAnimatorData> animationData;
-		public ComponentDataArray<MinionData> data;
-		public ComponentDataArray<MinionPathData> pathsInfo;
-		public FixedArrayArray<float3> paths;
-		public ComponentDataArray<NavMeshLocationComponent> locationComponents;
-		public ComponentDataArray<MinionAttackData> attackData;
-		public ComponentDataArray<MinionBitmask> bitmask;
-		public EntityArray entities;
+		public NativeArray<UnitTransformData> transforms;
+		public NativeArray<MinionTarget> targets;
+		public NativeArray<RigidbodyData> rigidbodies;
+		public NativeArray<TextureAnimatorData> animationData;
+		public NativeArray<MinionData> data;
+		public NativeArray<MinionPathData> pathsInfo;
+		public NativeArray<NavMeshLocationComponent> locationComponents;
+		public NativeArray<MinionAttackData> attackData;
+		public NativeArray<MinionBitmask> bitmask;
+		public NativeArray<Entity> entities;
 
 		public int Length;
+
+		public Minions(EntityQuery entityQuery) : this()
+		{
+			Length = entityQuery.CalculateLength();
+			if(Length == 0)
+				return;
+			entities = entityQuery.ToEntityArray(Allocator.Persistent);
+			transforms = entityQuery.ToComponentDataArray<UnitTransformData>(Allocator.Persistent);
+			rigidbodies = entityQuery.ToComponentDataArray<RigidbodyData>(Allocator.Persistent);
+			animationData = entityQuery.ToComponentDataArray<TextureAnimatorData>(Allocator.Persistent);
+			data = entityQuery.ToComponentDataArray<MinionData>(Allocator.Persistent);
+			pathsInfo = entityQuery.ToComponentDataArray<MinionPathData>(Allocator.Persistent);
+			locationComponents = entityQuery.ToComponentDataArray<NavMeshLocationComponent>(Allocator.Persistent);
+			attackData = entityQuery.ToComponentDataArray<MinionAttackData>(Allocator.Persistent);
+			bitmask = entityQuery.ToComponentDataArray<MinionBitmask>(Allocator.Persistent);
+		}
+
+		public void Free()
+		{
+			if(Length == 0)
+				return;
+
+			Length = 0;
+			entities.Dispose();
+			transforms.Dispose();
+			rigidbodies.Dispose();
+			animationData.Dispose();
+			data.Dispose();
+			pathsInfo.Dispose();
+			locationComponents.Dispose();
+			animationData.Dispose();
+			attackData.Dispose();
+			bitmask.Dispose();
+		}
 	}
 
 	public struct Formations
 	{
-		public EntityArray entities;
-		public ComponentDataArray<FormationClosestData> closestFormations;
-		public ComponentDataArray<FormationData> data;
-		public ComponentDataArray<CrowdAgent> agents;
-		public ComponentDataArray<CrowdAgentNavigator> navigators;
-		public ComponentDataArray<FormationHighLevelPath> highLevelPaths;
-		public ComponentDataArray<FormationIntegrityData> integrityData;
+		public NativeArray<Entity> entities;
+		public NativeArray<FormationClosestData> closestFormations;
+		public NativeArray<FormationData> data;
+		public NativeArray<CrowdAgent> agents;
+		public NativeArray<CrowdAgentNavigator> navigators;
+		public NativeArray<FormationHighLevelPath> highLevelPaths;
+		public NativeArray<FormationIntegrityData> integrityData;
 
 		public int Length;
+
+		public Formations(EntityQuery entityQuery) : this()
+		{
+			Length = entityQuery.CalculateLength();
+			if(Length == 0)
+				return;
+			
+			entities = entityQuery.ToEntityArray(Allocator.Persistent);
+			closestFormations = entityQuery.ToComponentDataArray<FormationClosestData>(Allocator.Persistent);
+			data = entityQuery.ToComponentDataArray<FormationData>(Allocator.Persistent);
+			agents = entityQuery.ToComponentDataArray<CrowdAgent>(Allocator.Persistent);
+			navigators = entityQuery.ToComponentDataArray<CrowdAgentNavigator>(Allocator.Persistent);
+			highLevelPaths = entityQuery.ToComponentDataArray<FormationHighLevelPath>(Allocator.Persistent);
+			integrityData = entityQuery.ToComponentDataArray<FormationIntegrityData>(Allocator.Persistent);
+		}
+
+		public void Free()
+		{
+			if(Length == 0)
+				return;
+
+			Length = 0;
+			entities.Dispose();
+			data.Dispose();
+			closestFormations.Dispose();
+			agents.Dispose();
+			navigators.Dispose();
+			highLevelPaths.Dispose();
+			integrityData.Dispose();
+		}
 	}
 
 	// To make sure dependencies for this system is a superset of the dependencies of FormationIntegritySystem
-    [Inject]
-    public FixedArrayFromEntity<EntityRef> entityRefs;
+    //[Inject]
+    //public BufferAccessor<EntityRef> entityRefs;
 
-
-	[Inject]
 	public Minions minions;
+	private EntityQuery minionsQuery;
 
-	[Inject]
 	public Formations formations;
+	private EntityQuery formationsQuery;
 
-	[Inject]
 	public FormationIntegritySystem integritySystem;
-	[Inject]
 	public SpawnerSystem spawnerSystem;
 	
 	public static EditorHelperSystem I;
 
 	public Queue<Action> work;
 
-	protected override void OnCreateManager (int capacity)
+	protected override void OnDestroy()
 	{
-		base.OnCreateManager (capacity);
+		minions.Free();
+		formations.Free();
+	}
 
+	protected override void OnCreate ()
+	{
+		spawnerSystem = World.GetOrCreateSystem<SpawnerSystem>();
+		integritySystem = World.GetOrCreateSystem<FormationIntegritySystem>();
+		
 		work = new Queue<Action>();
 		I = this;
+
+		minionsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<UnitTransformData>(),
+			ComponentType.ReadOnly<MinionTarget>(),
+			ComponentType.ReadOnly<RigidbodyData>(),
+			ComponentType.ReadOnly<TextureAnimatorData>(),
+			ComponentType.ReadOnly<MinionData>(),
+			ComponentType.ReadOnly<MinionPathData>(),
+			ComponentType.ReadOnly<NavMeshLocationComponent>(),
+			ComponentType.ReadOnly<MinionAttackData>(),
+			ComponentType.ReadOnly<MinionBitmask>());
+
+		formationsQuery = GetEntityQuery(ComponentType.ReadOnly<FormationClosestData>(),
+			ComponentType.ReadOnly<FormationData>(),
+			ComponentType.ReadOnly<CrowdAgent>(),
+			ComponentType.ReadOnly<CrowdAgentNavigator>(),
+			ComponentType.ReadOnly<FormationHighLevelPath>(),
+			ComponentType.ReadOnly<FormationIntegrityData>());
 	}
 
 	bool completeDependencies = false;
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
+		minions.Free();
+		minions = new Minions(minionsQuery);
+
+		formations.Free();
+		formations = new Formations(formationsQuery);
 		if (completeDependencies)
 		{
 			inputDeps.Complete();

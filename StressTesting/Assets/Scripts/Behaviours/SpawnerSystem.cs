@@ -17,7 +17,6 @@ public class SpawnerSystem : JobComponentSystem
 
 	public FormationWaypoint[] formationWaypoints;
 
-	[Inject]
 	private TextureAnimatorSystem textureAnimatorSystem;
 
 	public int totalRequested = 0;
@@ -103,6 +102,10 @@ public class SpawnerSystem : JobComponentSystem
 		}
 	}
 
+	protected override void OnCreate()
+	{
+		textureAnimatorSystem = World.GetOrCreateSystem<TextureAnimatorSystem>();
+	}
 
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
