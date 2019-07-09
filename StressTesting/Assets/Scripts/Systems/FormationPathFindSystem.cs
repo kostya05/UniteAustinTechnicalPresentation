@@ -12,39 +12,8 @@ using UnityEngine.Profiling;
 [UpdateAfter(typeof(FormationIntegritySystem))]
 public class FormationPathFindSystem : JobComponentSystem
 {
-    public struct Formations
-    {
-        public NativeArray<FormationData> data;
-        public NativeArray<CrowdAgentNavigator> navigators;
-        public NativeArray<FormationIntegrityData> integrityData;
-
-        public int Length;
-    }
-
-    public struct Minions
-    {
-        public NativeArray<MinionTarget> targets;
-        public NativeArray<MinionPathData> pathsInfo;
-        public FixedArrayArray<float3> paths;
-        public NativeArray<NavMeshLocationComponent> navMeshLocation;
-        public NativeArray<Entity> entities;
-        public int Length;
-    }
-    [Inject]
-    FixedArrayFromEntity<float3> minionPaths;
-    [Inject]
-    ComponentDataFromEntity<NavMeshLocationComponent> minionNavMeshLocation;
-    [Inject]
-    ComponentDataFromEntity<MinionPathData> minionPathsInfo;
-
-    [Inject]
-    private Formations formations;
-
-    [Inject]
-    private Minions minions;
-    
-    [Inject]
-    private ComponentDataFromEntity<FormationIntegrityData> formationIntegrityData;
+    private EntityQuery formationsQuery;
+    private EntityQuery minionsQuery;
     
     EntityManager entityManager;
 
@@ -85,6 +54,17 @@ public class FormationPathFindSystem : JobComponentSystem
             queryIndexFree.Add(i);
         }
         findingEntities = new NativeList<Entity>(MaxNavMeshQueries, Allocator.Persistent);
+
+        minionsQuery = GetEntityQuery(
+            ComponentType.ReadWrite<MinionTarget>(),
+            ComponentType.ReadWrite<MinionPathData>(), 
+            ComponentType.ChunkComponent<PathPoint>(),
+            ComponentType.ReadOnly<NavMeshLocationComponent>());
+
+        formationsQuery = GetEntityQuery(
+            ComponentType.ReadOnly<FormationData>(),
+            ComponentType.ReadWrite<CrowdAgentNavigator>(),
+            ComponentType.ReadOnly<FormationIntegrityData>());
     }
 
     protected override void OnDestroyManager()
@@ -103,24 +83,16 @@ public class FormationPathFindSystem : JobComponentSystem
 
     protected override JobHandle OnUpdate(JobHandle inputDeps)
     {
-        if (formations.Length == 0) return inputDeps;
+        var count = formationsQuery.CalculateLength();
+        if (count == 0) 
+            return inputDeps;
 
-        var assign = new AssignFormationSpeed
-        {
-            navigators = formations.navigators,
-            integrityData = formations.integrityData,
-            formations = formations.data
-        };
+        var assign = new AssignFormationSpeed();
 
         Profiler.BeginSample("Alloc");
         var pathFollow = new MinionFollowPath
         {
-            entities = minions.entities,
             newPathQueries = newPathQueries.ToConcurrent(),
-            pathsInfo = minions.pathsInfo,
-            minionPaths = minions.paths,
-            minionTargets = minions.targets,
-            navMeshLocation = minions.navMeshLocation,
             maxPathSize = SimulationState.MaxPathSize
         };
         Entity rmEnt;
@@ -163,17 +135,22 @@ public class FormationPathFindSystem : JobComponentSystem
 
         newPathQueries.Clear();
         var findHandle = inputDeps;
+
+        var pathPoints = GetBufferFromEntity<PathPoint>();
+        var pathInfos = GetComponentDataFromEntity<MinionPathData>();
+        var navMeshLocations = GetComponentDataFromEntity<NavMeshLocationComponent>();
         for (int i = 0; i < findingEntities.Length; ++i)
         {
+            var entity = findingEntities[i];
             var pathFind = new MinionPathFind
             {
                 query = queries[queryIndexUsed[i]],
-                entity = findingEntities[i],
+                entity = entity,
                 completePathQueries = completePathQueries,
 
-                pathsInfo = minionPathsInfo,
-                minionPaths = minionPaths,
-                navMeshLocation = minionNavMeshLocation,
+                pathsInfo = pathInfos,
+                minionPath = pathPoints[entity],
+                navMeshLocation = navMeshLocations,
                 maxPathSize = SimulationState.MaxPathSize,
                 //costs = costs,
                 polygons = new NativeArray<PolygonId>(100, Allocator.TempJob),
@@ -191,8 +168,8 @@ public class FormationPathFindSystem : JobComponentSystem
         }
         Profiler.EndSample();
 
-        var pathFindFence = pathFollow.Schedule(minions.Length, SimulationState.BigBatchSize, findHandle); // prepare targets fence?
-        var assignFence = assign.Schedule(formations.Length, SimulationState.BigBatchSize, inputDeps);
+        var pathFindFence = pathFollow.Schedule(minionsQuery, findHandle); // prepare targets fence?
+        var assignFence = assign.Schedule(formationsQuery, inputDeps);
 
         navMeshWorld.AddDependency(pathFindFence);
 
@@ -208,7 +185,7 @@ public class FormationPathFindSystem : JobComponentSystem
         public Entity entity;
         public NativeQueue<Entity> completePathQueries;
         public ComponentDataFromEntity<MinionPathData> pathsInfo;
-        public FixedArrayFromEntity<float3> minionPaths;
+        public DynamicBuffer<PathPoint> minionPath;
         public ComponentDataFromEntity<NavMeshLocationComponent> navMeshLocation;
 
         // Temp data for path finding
@@ -268,17 +245,19 @@ public class FormationPathFindSystem : JobComponentSystem
                     pathInfo.bitmasks |= 4;
                     completePathQueries.Enqueue(entity);
 
-                    var minionPath = minionPaths[entity];
-
                     pathInfo.pathSize = 0;
 
                     var cornerCount = 0;
+                    var tmpBuffer = new NativeArray<PolygonIdBuffer>(polygons.Length, Allocator.Temp);
+                    for (int i = 0; i < tmpBuffer.Length; i++)
+                        tmpBuffer[i] = polygons[i];
                     var pathStatus = PathUtils.FindStraightPath(query, navMeshLocation[entity].NavMeshLocation.position,
                                                                 pathInfo.targetPosition,
-                                                                polygons, polySize,
+                                                                tmpBuffer, polySize,
                                                                 ref straightPath, ref straightPathFlags, ref vertexSide,
                                                                 ref cornerCount, maxPathSize);
-
+                    tmpBuffer.Dispose();
+                    
                     if (pathStatus.IsSuccess() && cornerCount > 1 && cornerCount <= maxPathSize)
                     {
                         for (var i = 0; i < cornerCount; i++)
@@ -306,93 +285,57 @@ public class FormationPathFindSystem : JobComponentSystem
         }
     }
     [BurstCompile]
-    private struct MinionFollowPath : IJobParallelFor
+    private struct MinionFollowPath : IJobForEachWithEntity_EBCCC<PathPoint, MinionPathData, MinionTarget, NavMeshLocationComponent>
     {
-        [ReadOnly]
-        public NativeArray<Entity> entities;
         public NativeQueue<Entity>.Concurrent newPathQueries;
-        public NativeArray<MinionPathData> pathsInfo;
-        public FixedArrayArray<float3> minionPaths;
-        public NativeArray<MinionTarget> minionTargets;
-
-        public NativeArray<NavMeshLocationComponent> navMeshLocation;
-
         public int maxPathSize;
 
-        public void Execute(int index)
+        public void Execute(Entity entity, int index, DynamicBuffer<PathPoint> minionPath, ref MinionPathData pathInfo, ref MinionTarget minionTarget, [ReadOnly]ref NavMeshLocationComponent navMeshLocation)
         {
-            var pathInfo = pathsInfo[index];
-            var pathDataChanged = false;
-
             if ((pathInfo.bitmasks & 1) == 1)
             {
-                var minionTarget = minionTargets[index];
-
                 if (mathx.lengthSqr(pathInfo.pathFoundToPosition - pathInfo.targetPosition) > FarDistance * FarDistance)
                 {
                     pathInfo.bitmasks &= ~4;
-                    pathDataChanged = true;
                 }
 
                 // Check bit 1 and 2
                 if ((pathInfo.bitmasks & 6) == 0)
                 {
-                    newPathQueries.Enqueue(entities[index]);
+                    newPathQueries.Enqueue(entity);
                 }
 
                 if ((pathInfo.bitmasks & 4) != 0)
                 {
                     // The path was previously found. We need to move on it
-
-                    var minionPath = minionPaths[index];
-
                     if (maxPathSize != 0)
                     {
                         var potentialTarget = minionPath[pathInfo.currentCornerIndex];
 
-                        if (mathx.lengthSqr((float3)navMeshLocation[index].NavMeshLocation.position - potentialTarget) < 0.01f)
+                        if (mathx.lengthSqr((float3)navMeshLocation.NavMeshLocation.position - potentialTarget) < 0.01f)
                         {
                             // Increase the index if needed
                             if (pathInfo.currentCornerIndex < pathInfo.pathSize)
                             {
                                 // Go to next corner
                                 potentialTarget = minionPath[++pathInfo.currentCornerIndex];
-                                pathDataChanged = true;
                             }
                         }
 
                         minionTarget.Target = potentialTarget;
                     }
                 }
-
-                minionTargets[index] = minionTarget;
-            }
-
-            if (pathDataChanged)
-            {
-                pathsInfo[index] = pathInfo;
             }
         }
     }
 
     [BurstCompile]
-    private struct AssignFormationSpeed : IJobParallelFor
+    private struct AssignFormationSpeed : IJobForEach<CrowdAgentNavigator, FormationIntegrityData, FormationData>
     {
-        [ReadOnly]
-        public NativeArray<FormationData> formations;
-
-        public NativeArray<CrowdAgentNavigator> navigators;
-
-        [ReadOnly]
-        public NativeArray<FormationIntegrityData> integrityData;
-
-        public void Execute(int index)
+        public void Execute(ref CrowdAgentNavigator n, [ReadOnly]ref FormationIntegrityData data, [ReadOnly]ref FormationData formation)
         {
-            FormationIntegrityData data = integrityData[index];
-
-            var n = navigators[index];
-            if (!formations[index].EnableMovement || data.unitsFar + data.unitsClose >= data.unitCount ||
-                formations[index].FormationState == FormationData.State.Spawning)
+            if (!formation.EnableMovement || data.unitsFar + data.unitsClose >= data.unitCount ||
+                formation.FormationState == FormationData.State.Spawning)
             {
                 n.speed = 0f;
             }
@@ -400,8 +343,6 @@ public class FormationPathFindSystem : JobComponentSystem
             {
                 n.speed = math.lerp(1f, 2.1f, 1 - (data.unitsClose / (float)data.unitCount));
             }
-
-            navigators[index] = n;
         }
     }
 }
