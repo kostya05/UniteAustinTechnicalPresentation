@@ -8,33 +8,7 @@ using UnityEngine.Experimental.AI;
 [UpdateAfter(typeof(MinionAttackSystem))]
 public class MinionSystem : JobComponentSystem
 {
-	public struct Minions
-	{
-		[ReadOnly]
-		public NativeArray<AliveMinionData> aliveMinionsFilter;
-		[ReadOnly]
-		public NativeArray<MinionTarget> targets;
-		public NativeArray<MinionData> minions;
-		public NativeArray<UnitTransformData> transforms;
-		public NativeArray<RigidbodyData> velocities;
-		public NativeArray<TextureAnimatorData> animationData;
-		public NativeArray<MinionBitmask> bitmask;
-		public NativeArray<NavMeshLocationComponent> navMeshLocations;
-		public NativeArray<MinionAttackData> attackData;
-		public NativeArray<Entity> entities;
-		public NativeArray<IndexInFormationData> indicesInFormation;
-
-		public int Length;
-	}
-	
-	[Inject]
-	private Minions minions;
-	
-	//[Inject]
-	//private ComponentDataFromEntity<FormationClosestData> formationClosestDataFromEntity;
-
-	//[Inject]
-	//private ComponentDataFromEntity<FormationData> formationsFromEntity;
+	private EntityQuery minionsQuery;
 	
 	public NativeMultiHashMap<int, int> CollisionBuckets;
 
@@ -52,6 +26,18 @@ public class MinionSystem : JobComponentSystem
 		formationSystem = World.GetOrCreateSystem<FormationSystem>();
 		var navMeshWorld = NavMeshWorld.GetDefaultWorld();
 		moveLocationQuery = new NavMeshQuery(navMeshWorld, Allocator.Persistent);
+
+		minionsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<AliveMinionData>(),
+			ComponentType.ReadOnly<MinionTarget>(),
+			ComponentType.ReadWrite<MinionData>(),
+			ComponentType.ReadWrite<UnitTransformData>(),
+			ComponentType.ReadWrite<RigidbodyData>(),
+			ComponentType.ReadWrite<TextureAnimatorData>(),
+			ComponentType.ReadWrite<MinionBitmask>(),
+			ComponentType.ReadWrite<NavMeshLocationComponent>(),
+			ComponentType.ReadWrite<MinionAttackData>(),
+			ComponentType.ReadWrite<IndexInFormationData>());
 	}
 	protected override void OnDestroyManager()
 	{
@@ -77,24 +63,34 @@ public class MinionSystem : JobComponentSystem
 		if (!Application.isPlaying)
 			return inputDeps;
 
-		if (minions.Length == 0) return inputDeps; // I still hate this initialization issues
+		var count = minionsQuery.CalculateLength();
+		if (count == 0) 
+			return inputDeps; // I still hate this initialization issues
 
 		// TODO maybe fix native array
-		var forwardsBuffer = new NativeArray<Vector3>(minions.Length, Allocator.TempJob);
-		var positionsBuffer = new NativeArray<Vector3>(minions.Length, Allocator.TempJob);
-		var locationsBuffer = new NativeArray<NavMeshLocation>(minions.Length, Allocator.TempJob);
+		var forwardsBuffer = new NativeArray<Vector3>(count, Allocator.TempJob);
+		var positionsBuffer = new NativeArray<Vector3>(count, Allocator.TempJob);
+		var locationsBuffer = new NativeArray<NavMeshLocation>(count, Allocator.TempJob);
+
+		var rigidbodyDatas = minionsQuery.ToComponentDataArray<RigidbodyData>(Allocator.TempJob);
+		var targetPositions = minionsQuery.ToComponentDataArray<MinionTarget>(Allocator.TempJob);
+		var transforms = minionsQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob);
+		var minionAttackDatas = minionsQuery.ToComponentDataArray<MinionAttackData>(Allocator.TempJob);
+		var minions = minionsQuery.ToComponentDataArray<MinionData>(Allocator.TempJob);
+		var animationDatas = minionsQuery.ToComponentDataArray<TextureAnimatorData>(Allocator.TempJob);
+		var navMeshLocations = minionsQuery.ToComponentDataArray<NavMeshLocationComponent>(Allocator.TempJob);
 		
 
 		// ============ JOB CREATION ===============
 		var minionBehaviorJob = new MinionBehaviourJob
 		{
-			rigidbodyData = minions.velocities,
-			targetPositions = minions.targets,
-			transforms = minions.transforms,
-			minionAttackData = minions.attackData,
-			minionData = minions.minions,
-			animatorData = minions.animationData,
-			navMeshLocations = minions.navMeshLocations,
+			rigidbodyData = rigidbodyDatas,
+			targetPositions = targetPositions,
+			transforms = transforms,
+			minionAttackData = minionAttackDatas,
+			minionData = minions,
+			animatorData = animationDatas,
+			navMeshLocations = navMeshLocations,
 			forwardsBuffer = forwardsBuffer,
 			positionsBuffer = positionsBuffer,
 			locationsBuffer = locationsBuffer,
@@ -112,8 +108,8 @@ public class MinionSystem : JobComponentSystem
 
 		var minionBehaviorSyncbackJob = new MinionBehaviourSyncbackJob
 		{
-			transforms = minions.transforms,
-			navMeshLocations = minions.navMeshLocations,
+			transforms = transforms,
+			navMeshLocations = navMeshLocations,
 			forwardsBuffer = forwardsBuffer,
 			positionsBuffer = positionsBuffer,
 			locationsBuffer = locationsBuffer

@@ -9,17 +9,18 @@ using UnityEngine.Experimental.AI;
 [BurstCompile]
 public struct MinionBehaviourJob : IJobParallelForBatch
 {
-	[ReadOnly]
+	[ReadOnly, DeallocateOnJobCompletion]
 	public NativeArray<MinionTarget> targetPositions;
-	[ReadOnly]
+	[ReadOnly, DeallocateOnJobCompletion]
 	public NativeArray<RigidbodyData> rigidbodyData;
-	[ReadOnly]
+	[ReadOnly, DeallocateOnJobCompletion]
 	public NativeArray<MinionAttackData> minionAttackData;
-	[ReadOnly]
+	[ReadOnly, DeallocateOnJobCompletion]
 	public NativeArray<MinionData> minionData;
 	[ReadOnly]
 	public float archerAttackTime;
 
+	[DeallocateOnJobCompletion]
 	public NativeArray<TextureAnimatorData> animatorData;
 
 	[ReadOnly]

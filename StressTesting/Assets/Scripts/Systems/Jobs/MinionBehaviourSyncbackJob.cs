@@ -9,7 +9,9 @@ using UnityEngine.Experimental.AI;
 [BurstCompile]
 public struct MinionBehaviourSyncbackJob : IJobParallelForBatch
 {
+	[DeallocateOnJobCompletion]
 	public NativeArray<UnitTransformData> transforms;
+	[DeallocateOnJobCompletion]
 	public NativeArray<NavMeshLocationComponent> navMeshLocations;
 
 	[DeallocateOnJobCompletion]

@@ -45,7 +45,7 @@ public struct PrepareMinionCollisionJob : IJobForEachWithEntity<UnitTransformDat
 
 
 [BurstCompile]
-public struct MinionCollisionJob : IJobForEachWithEntity<RigidbodyData, MinionAttackData>
+public struct MinionCollisionJob : IJobForEachWithEntity<RigidbodyData, MinionAttackData> //TODO: index?
 {
 	[ReadOnly]
 	public NativeArray<UnitTransformData> transforms;
