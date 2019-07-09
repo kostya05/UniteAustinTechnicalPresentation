@@ -29,31 +29,23 @@ public struct PrepareBucketsJob : IJob
 }
 
 [BurstCompile]
-public struct PrepareMinionCollisionJob : IJobParallelFor
+public struct PrepareMinionCollisionJob : IJobForEachWithEntity<UnitTransformData, MinionBitmask> //TODO: Parallel?
 {
-	[ReadOnly]
-	public NativeArray<UnitTransformData> 	transforms;
-
-	[ReadOnly]
-	public NativeArray<MinionBitmask> 		minionBitmask;
-	[ReadOnly]
-	public NativeArray<Entity> 								entities;
-
 	public NativeArray<UnitTransformData> 			transformsArray;
 	public NativeArray<MinionBitmask> 				minionBitmaskArray;
 	public NativeArray<Entity> 						entitiesArray;
 
-	public void Execute(int index)
+	public void Execute(Entity entity, int index, [ReadOnly]ref UnitTransformData transform, [ReadOnly]ref MinionBitmask bitmask)
 	{
-		transformsArray[index] = transforms[index];
-		minionBitmaskArray[index] = minionBitmask[index];
-		entitiesArray[index] = entities[index];
+		transformsArray[index] = transform;
+		minionBitmaskArray[index] = bitmask;
+		entitiesArray[index] = entity;
 	}
 }
 
 
 [BurstCompile]
-public struct MinionCollisionJob : IJobParallelFor
+public struct MinionCollisionJob : IJobForEachWithEntity<RigidbodyData, MinionAttackData>
 {
 	[ReadOnly]
 	public NativeArray<UnitTransformData> transforms;
@@ -66,15 +58,13 @@ public struct MinionCollisionJob : IJobParallelFor
 	
 	[ReadOnly]
 	public NativeMultiHashMap<int, int> buckets;
-
-	public NativeArray<RigidbodyData> minionVelocities;
-	public NativeArray<MinionAttackData> minionAttackData;
 	
 	[ReadOnly]
 	public float dt;
-
-	public void Execute(int index)
+	
+	public void Execute(Entity entity, int index, ref RigidbodyData currentMinion, ref MinionAttackData attackData)
 	{
+		
 		if (!minionBitmask[index].IsSpawned) return;
 
 		const float radius = 1f;
@@ -86,8 +76,6 @@ public struct MinionCollisionJob : IJobParallelFor
 		const float maxVelocitySqr = maxVelocity * maxVelocity;
 
 		var currentTransform = transforms[index];
-		var currentMinion = minionVelocities[index];
-		var attackData = minionAttackData[index];
 		attackData.targetEntity = new Entity();
 
 		var velocity = currentMinion.Velocity.xz;
@@ -172,8 +160,5 @@ public struct MinionCollisionJob : IJobParallelFor
 		currentMinion.Velocity = new float3(velocity.x, 0, velocity.y);
 		if (math.dot(currentMinion.Velocity, currentMinion.Velocity) > maxVelocitySqr)
 			currentMinion.Velocity = math.normalize(currentMinion.Velocity) * maxVelocity;
-
-		minionVelocities[index] = currentMinion;
-		minionAttackData[index] = attackData;
 	}
 }

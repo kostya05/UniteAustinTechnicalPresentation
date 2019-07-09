@@ -8,27 +8,11 @@ public class MinionCollisionSystem : JobComponentSystem
 {
 	private MinionSystem minionSystem;
 
-	public struct Minions
-	{
-		[ReadOnly]
-		public NativeArray<AliveMinionData> aliveMinionsFilter;
-		[ReadOnly]
-		public NativeArray<UnitTransformData> transforms;
-		public NativeArray<RigidbodyData> velocities;
-		[ReadOnly]
-		public NativeArray<MinionBitmask> bitmask;
-		public NativeArray<MinionAttackData> attackData;
-		public NativeArray<Entity> entities;
-
-		public int Length;
-	}
-
 	NativeList<UnitTransformData> m_Transforms;
 	NativeList<Entity> m_Entities;
 	NativeList<MinionBitmask> m_Bitmasks;
-	
-	[Inject]
-	private Minions minions;
+
+	private EntityQuery minionsQuery;
 
 	protected override void OnCreate()
 	{
@@ -37,6 +21,13 @@ public class MinionCollisionSystem : JobComponentSystem
 		m_Transforms = new NativeList<UnitTransformData>(Allocator.Persistent);
 		m_Entities = new NativeList<Entity>(Allocator.Persistent);
 		m_Bitmasks = new NativeList<MinionBitmask>(Allocator.Persistent);
+
+		minionsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<AliveMinionData>(),
+			ComponentType.ReadOnly<UnitTransformData>(),
+			ComponentType.ReadOnly<MinionBitmask>(),
+			ComponentType.ReadWrite<RigidbodyData>(),
+			ComponentType.ReadWrite<MinionAttackData>());
 	}
 
 	protected override void OnDestroyManager()
@@ -48,37 +39,32 @@ public class MinionCollisionSystem : JobComponentSystem
 
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
-		if (minions.Length == 0) return inputDeps;
+		var count = minionsQuery.CalculateLength();
+		if (count == 0) 
+			return inputDeps;
 
-		m_Transforms.ResizeUninitialized(minions.Length);
-		m_Entities.ResizeUninitialized(minions.Length);
-		m_Bitmasks.ResizeUninitialized(minions.Length);
+		m_Transforms.ResizeUninitialized(count);
+		m_Entities.ResizeUninitialized(count);
+		m_Bitmasks.ResizeUninitialized(count);
 		
 		var prepareCollision = new PrepareMinionCollisionJob
 		{
-			entities = minions.entities,
 			entitiesArray = m_Entities,
-			
-			transforms = minions.transforms,
 			transformsArray = m_Transforms,
-			
-			minionBitmask = minions.bitmask,
 			minionBitmaskArray = m_Bitmasks
 		};
-		inputDeps = prepareCollision.Schedule(minions.Length, 128, inputDeps);
+		inputDeps = prepareCollision.Schedule(minionsQuery, inputDeps);
 		
 		var collisionForceJob = new MinionCollisionJob
 		{
 			transforms = m_Transforms,
 			buckets = minionSystem.CollisionBuckets,
-			minionVelocities = minions.velocities,
 			dt = Time.deltaTime,
 			minionBitmask = m_Bitmasks,
-			minionAttackData = minions.attackData,
 			entities = m_Entities
 		};
 
-		var collisionJobFence = collisionForceJob.Schedule(minions.Length, SimulationState.BigBatchSize, inputDeps);
+		var collisionJobFence = collisionForceJob.Schedule(minionsQuery, inputDeps);
 
 		return collisionJobFence;
 	}
