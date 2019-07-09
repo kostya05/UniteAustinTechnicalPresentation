@@ -12,7 +12,7 @@ using UnityEngine.Profiling;
 [UpdateAfter(typeof(PrepareBucketsSystem))]
 public class FormationSystem : JobComponentSystem
 {
-	public struct Formations
+	private struct Formations
 	{
 		public NativeArray<FormationData> data;
 		//public FixedArrayArray<EntityRef> unitData;
@@ -63,6 +63,23 @@ public class FormationSystem : JobComponentSystem
 			
 		}
 	}
+	
+	
+
+	public static NativeArray<ComponentType> GetFormationQueryTypes()
+	{
+		var components = new NativeArray<ComponentType>(7, Allocator.Temp);
+
+		components[0] = ComponentType.ReadWrite<FormationData>();
+		components[1] = ComponentType.ReadWrite<FormationNavigationData>();
+		components[2] = ComponentType.ReadWrite<FormationClosestData>();
+		components[3] = ComponentType.ReadWrite<CrowdAgentNavigator>();
+		components[4] = ComponentType.ReadWrite<CrowdAgent>();
+		components[5] = ComponentType.ReadWrite<FormationHighLevelPath>();
+		components[6] = ComponentType.ReadWrite<EntityRef>();
+		
+		return components;
+	}
 
 	private EntityQuery formationsQuery;
 
@@ -75,16 +92,12 @@ public class FormationSystem : JobComponentSystem
 
 	protected override void OnCreate()
 	{
-		formationsQuery = GetEntityQuery(
-			ComponentType.ReadWrite<FormationData>(),
-			ComponentType.ReadWrite<FormationNavigationData>(),
-			ComponentType.ReadWrite<FormationClosestData>(),
-			ComponentType.ReadWrite<CrowdAgentNavigator>(),
-			ComponentType.ReadWrite<CrowdAgent>(),
-			ComponentType.ReadWrite<FormationHighLevelPath>(),
-			ComponentType.ChunkComponent<EntityRef>());
+		var componentTypes = GetFormationQueryTypes();
+		formationsQuery = GetEntityQuery(componentTypes);
+		componentTypes.Dispose();
 	}
 
+	
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
 		// Realloc();

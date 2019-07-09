@@ -8,127 +8,89 @@ using Unity.Entities;
 [UpdateAfter(typeof(FormationSystem))]
 public class FormationMaintenanceSystem : JobComponentSystem
 {
-	[Inject]
-	private FormationSystem.Formations formations;
+	private EntityQuery formationsQuery;
+	private EntityQuery minionsQuery;
 
-	//[Inject]
-	//private BufferFromEntity<EntityRef> formationsUnitDataFromEntity;
-
-	//[Inject]
-	//private ComponentDataFromEntity<IndexInFormationData> indicesInFormation;
-
-	public struct Minions
+	protected override void OnCreate()
 	{
-		[ReadOnly]
-		public NativeArray<AliveMinionData> aliveMinionsFilter;
-		[ReadOnly]
-		public NativeArray<UnitTransformData> transforms;
-		[ReadOnly]
-		public NativeArray<IndexInFormationData> indicesInFormation;
+		minionsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<AliveMinionData>(),
+			ComponentType.ReadOnly<UnitTransformData>(),
+			ComponentType.ReadOnly<IndexInFormationData>());
 
-		public NativeArray<Entity> entities;
-
-		public int Length;
+		var components = FormationSystem.GetFormationQueryTypes();
+		formationsQuery = GetEntityQuery(components);
+		components.Dispose();
 	}
-	
-	[Inject]
-	private Minions minions;
+
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
-		if (formations.Length == 0) return inputDeps;
+		var count = formationsQuery.CalculateLength();
+		if (count == 0) 
+			return inputDeps;
 
-		var cleanUnitsJob = new ClearUnitDataJob
-		{
-			formations = formations.data, formationUnitData = formations.unitData
-		};
+		var cleanUnitsJob = new ClearUnitDataJob();
 		
 		var fillUnitJob = new FillUnitDataJob
 		{ 
-			formationUnitData = formationsUnitDataFromEntity, transforms = minions.transforms, 
-			indicesInFormation = minions.indicesInFormation, minionEntities = minions.entities, 
-			length = minions.Length
+			formationUnitData = GetBufferFromEntity<EntityRef>()
 		};
 		
 		var rearrangeJob = new RearrangeUnitIndexesJob
 		{
-			formations = formations.data, formationUnitData = formations.unitData, indicesInFormation = indicesInFormation
+			indicesInFormation = GetComponentDataFromEntity<IndexInFormationData>()
 		};
 
-		var cleanFence = cleanUnitsJob.Schedule(formations.Length, SimulationState.SmallBatchSize, inputDeps);
-		var fillFence = fillUnitJob.Schedule(cleanFence);
-		var rearrangeFence = rearrangeJob.Schedule(formations.Length, SimulationState.SmallBatchSize, fillFence);
+		var cleanFence = cleanUnitsJob.Schedule(formationsQuery, inputDeps);
+		var fillFence = fillUnitJob.Schedule(minionsQuery, cleanFence);
+		var rearrangeFence = rearrangeJob.Schedule(formationsQuery, fillFence);
 
 		return rearrangeFence;
 	}
 
 	[BurstCompile]
-	private struct ClearUnitDataJob : IJobParallelFor
+	private struct ClearUnitDataJob : IJobForEach_BC<EntityRef, FormationData>
 	{
-		[ReadOnly]
-		public NativeArray<FormationData> formations;
-		public FixedArrayArray<EntityRef> formationUnitData;
-
-		public void Execute(int index)
+		public void Execute(DynamicBuffer<EntityRef> unitData, [ReadOnly]ref FormationData formationData)
 		{
-			var unitData = formationUnitData[index];
-			var len = math.max(formations[index].SpawnedCount, formations[index].UnitCount);
+			var len = math.max(formationData.SpawnedCount, formationData.UnitCount);
 
 			for (var i = 0; i < len; i++)
-			{
 				unitData[i] = new EntityRef();
-			}
 		}
 	}
 
 	[BurstCompile]
-	private struct FillUnitDataJob : IJob // this can't be parallel job because of FromEntity does not support parallel writing
+	private struct FillUnitDataJob : IJobForEachWithEntity_ECC<UnitTransformData, IndexInFormationData>
 	{
-		public FixedArrayFromEntity<EntityRef> formationUnitData;
-		[ReadOnly]
-		public NativeArray<UnitTransformData> transforms;
-		[ReadOnly]
-		public NativeArray<IndexInFormationData> indicesInFormation;
-		[ReadOnly]
-		public NativeArray<Entity> minionEntities;
+		public BufferFromEntity<EntityRef> formationUnitData;
 
-		public int length;
-
-		public void Execute()
+		public void Execute(Entity entity, int index, [ReadOnly]ref UnitTransformData transform, [ReadOnly]ref IndexInFormationData indexData)
 		{
-			for (var index = 0; index < length; ++index)
-			{
-				var unitData = formationUnitData[transforms[index].FormationEntity];
-
-				unitData[indicesInFormation[index].IndexInFormation] = new EntityRef(minionEntities[index]);
-			}
+			var unitData = formationUnitData[transform.FormationEntity];
+			unitData[indexData.IndexInFormation] = new EntityRef(entity);
 		}
 	}
 
 	[BurstCompile]
-	private struct RearrangeUnitIndexesJob : IJobParallelFor
+	private struct RearrangeUnitIndexesJob : IJobForEach_BC<EntityRef, FormationData>
 	{
-		[ReadOnly]
-		public NativeArray<FormationData> formations;
-		public FixedArrayArray<EntityRef> formationUnitData;
-
 		[NativeDisableParallelForRestriction]
 		public ComponentDataFromEntity<IndexInFormationData> indicesInFormation;
-
-		public void Execute(int index)
+		public void Execute(DynamicBuffer<EntityRef> unitData, [ReadOnly]ref FormationData formation)
 		{
-			var len = math.max(formations[index].SpawnedCount, formations[index].UnitCount);
-
-			var unitData = formationUnitData[index];
-
+			var len = math.max(formation.SpawnedCount, formation.UnitCount);
 			for (var i = 0; i < len; i++)
 			{
-				if (unitData[i].entity != new Entity()) continue;
+				if (unitData[i].entity != new Entity()) 
+					continue;
 				
 				// Find a suitable index
 				int j;
 				for (j = i + 1; j < len; j++)
 				{
-					if (unitData[j].entity == new Entity()) continue;
+					if (unitData[j].entity == new Entity()) 
+						continue;
 					
 					// We got an index. Replace
 					unitData[i] = unitData[j];
@@ -140,7 +102,8 @@ public class FormationMaintenanceSystem : JobComponentSystem
 				}
 
 				// No available indexes till the end
-				if (j == len) break;
+				if (j == len) 
+					break;
 			}
 		}
 	}
