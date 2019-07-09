@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Unity.Burst;
 using Unity.Collections;
@@ -130,22 +131,17 @@ public class TextureAnimatorSystem : JobComponentSystem
 	#region Jobs
 
 	[BurstCompile]
-	struct PrepareAnimatorDataJob : IJobParallelFor
+	struct PrepareAnimatorDataJob : IJobForEachWithEntity<TextureAnimatorData>
 	{
-		[DeallocateOnJobCompletion]
-		public NativeArray<TextureAnimatorData> textureAnimatorData;
-
 		[NativeFixedLength(100)]
 		[ReadOnly]
 		public NativeArray<AnimationClipDataBaked> animationClips;
 
 		public float dt;
-
-		public void Execute(int i)
+		
+		public void Execute(Entity entity, int index, ref TextureAnimatorData animatorData)
 		{
 			// CHECK: We can't modify values inside of a struct directly?
-			var animatorData = textureAnimatorData[i];
-
 			if (animatorData.CurrentAnimationId != animatorData.NewAnimationId)
 			{
 				animatorData.CurrentAnimationId = animatorData.NewAnimationId;
@@ -153,7 +149,7 @@ public class TextureAnimatorSystem : JobComponentSystem
 			}
 
 			AnimationClipDataBaked clip = animationClips[(int)animatorData.UnitType * 25 + animatorData.CurrentAnimationId];
-			float normalizedTime = textureAnimatorData[i].AnimationNormalizedTime + dt / clip.AnimationLength;
+			float normalizedTime = animatorData.AnimationNormalizedTime + dt / clip.AnimationLength;
 			if (normalizedTime > 1.0f)
 			{
 				if (clip.Looping) normalizedTime = normalizedTime % 1.0f;
@@ -161,19 +157,82 @@ public class TextureAnimatorSystem : JobComponentSystem
 			}
 
 			animatorData.AnimationNormalizedTime = normalizedTime;
+		}
+	}
+	
+	struct ComputeParameter
+	{
+		public float4 Position;
+		public quaternion Rotation;
+		public float3 TexturePositions;
 
-			textureAnimatorData[i] = animatorData;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public ComputeParameter(float4 position, quaternion rotation, float3 texturePositions)
+		{
+			Position = position;
+			Rotation = rotation;
+			TexturePositions = texturePositions;
+		}
+	}
+	
+	struct ApplyComputeParametersChange : IJob
+	{
+		public NativeQueue<ComputeParameter> Lod0;
+		public NativeQueue<ComputeParameter> Lod1;
+		public NativeQueue<ComputeParameter> Lod2;
+		public NativeQueue<ComputeParameter> Lod3;
+		
+		public NativeList<float4> Lod0Positions;
+		public NativeList<quaternion> Lod0Rotations;
+		public NativeList<float3> Lod0TexturePositions;
+
+		public NativeList<float4> Lod1Positions;
+		public NativeList<quaternion> Lod1Rotations;
+		public NativeList<float3> Lod1TexturePositions;
+
+		public NativeList<float4> Lod2Positions;
+		public NativeList<quaternion> Lod2Rotations;
+		public NativeList<float3> Lod2TexturePositions;
+
+		public NativeList<float4> Lod3Positions;
+		public NativeList<quaternion> Lod3Rotations;
+		public NativeList<float3> Lod3TexturePositions;
+		
+		public void Execute()
+		{
+			while (Lod0.TryDequeue(out var value))
+			{
+				Lod0Positions.Add(value.Position);
+				Lod0Rotations.Add(value.Rotation);
+				Lod0TexturePositions.Add(value.TexturePositions);
+			}
+			
+			while (Lod1.TryDequeue(out var value))
+			{
+				Lod1Positions.Add(value.Position);
+				Lod1Rotations.Add(value.Rotation);
+				Lod1TexturePositions.Add(value.TexturePositions);
+			}
+			
+			while (Lod2.TryDequeue(out var value))
+			{
+				Lod2Positions.Add(value.Position);
+				Lod2Rotations.Add(value.Rotation);
+				Lod2TexturePositions.Add(value.TexturePositions);
+			}
+			
+			while (Lod3.TryDequeue(out var value))
+			{
+				Lod3Positions.Add(value.Position);
+				Lod3Rotations.Add(value.Rotation);
+				Lod3TexturePositions.Add(value.TexturePositions);
+			}
 		}
 	}
 
 	[BurstCompile]
-	struct CullAndComputeParametersSafe : IJob
+	struct CullAndComputeParametersSafe : IJobForEach<UnitTransformData, TextureAnimatorData>
 	{
-		[ReadOnly, DeallocateOnJobCompletion]
-		public NativeArray<TextureAnimatorData> textureAnimatorData;
-
-		[ReadOnly, DeallocateOnJobCompletion]
-		public NativeArray<UnitTransformData> unitTransformData;
 
 		[NativeFixedLength(100)]
 		[ReadOnly]
@@ -194,70 +253,48 @@ public class TextureAnimatorSystem : JobComponentSystem
 		[ReadOnly]
 		public float3 CameraPosition;
 
-		public NativeList<float4> Lod0Positions;
-		public NativeList<quaternion> Lod0Rotations;
-		public NativeList<float3> Lod0TexturePositions;
+		public NativeQueue<ComputeParameter>.Concurrent Lod0;
+		public NativeQueue<ComputeParameter>.Concurrent Lod1;
+		public NativeQueue<ComputeParameter>.Concurrent Lod2;
+		public NativeQueue<ComputeParameter>.Concurrent Lod3;
 
-		public NativeList<float4> Lod1Positions;
-		public NativeList<quaternion> Lod1Rotations;
-		public NativeList<float3> Lod1TexturePositions;
-
-		public NativeList<float4> Lod2Positions;
-		public NativeList<quaternion> Lod2Rotations;
-		public NativeList<float3> Lod2TexturePositions;
-
-		public NativeList<float4> Lod3Positions;
-		public NativeList<quaternion> Lod3Rotations;
-		public NativeList<float3> Lod3TexturePositions;
-
-		public void Execute()
+		public void Execute([ReadOnly]ref UnitTransformData unitTransform, [ReadOnly]ref TextureAnimatorData animatorData)
 		{
-			for (int i = 0; i < unitTransformData.Length; i++)
+			float distance = math.length(CameraPosition - unitTransform.Position);
+
+			if(animatorData.CurrentAnimationId == -1) //TODO: need???
+				return;
+
+			AnimationClipDataBaked clip = animationClips[(int)animatorData.UnitType * 25 + animatorData.CurrentAnimationId];
+			Quaternion rotation = Quaternion.LookRotation(unitTransform.Forward, new Vector3(0.0f, 1.0f, 0.0f));
+			float texturePosition = animatorData.AnimationNormalizedTime * clip.TextureRange + clip.TextureOffset;
+			int lowerPixelInt = (int)math.floor(texturePosition * clip.TextureWidth);
+			//float lowerPixelCenter = (lowerPixelInt + 0.5f) / clip.TextureWidth;
+			//float upperPixelCenter = lowerPixelCenter + clip.OnePixelOffset;
+
+			float lowerPixelCenter = (lowerPixelInt * 1.0f) / clip.TextureWidth;
+			float upperPixelCenter = lowerPixelCenter + clip.OnePixelOffset;
+			float lerpFactor = (texturePosition - lowerPixelCenter) / clip.OnePixelOffset;
+			float3 texturePositionData = new float3(lowerPixelCenter, upperPixelCenter, lerpFactor);
+			//float3 texturePositionData = new float3(texturePosition, 0, -1);
+
+			float4 position = new float4(unitTransform.Position, unitTransform.Scale);
+
+			if (distance < DistanceMaxLod0)
 			{
-				var unitTransform = unitTransformData[i];
-				float distance = math.length(CameraPosition - unitTransform.Position);
-
-				var animatorData = textureAnimatorData[i];
-
-				AnimationClipDataBaked clip = animationClips[(int)animatorData.UnitType * 25 + animatorData.CurrentAnimationId];
-				Quaternion rotation = Quaternion.LookRotation(unitTransform.Forward, new Vector3(0.0f, 1.0f, 0.0f));
-				float texturePosition = textureAnimatorData[i].AnimationNormalizedTime * clip.TextureRange + clip.TextureOffset;
-				int lowerPixelInt = (int)math.floor(texturePosition * clip.TextureWidth);
-				//float lowerPixelCenter = (lowerPixelInt + 0.5f) / clip.TextureWidth;
-				//float upperPixelCenter = lowerPixelCenter + clip.OnePixelOffset;
-
-				float lowerPixelCenter = (lowerPixelInt * 1.0f) / clip.TextureWidth;
-				float upperPixelCenter = lowerPixelCenter + clip.OnePixelOffset;
-				float lerpFactor = (texturePosition - lowerPixelCenter) / clip.OnePixelOffset;
-				float3 texturePositionData = new float3(lowerPixelCenter, upperPixelCenter, lerpFactor);
-				//float3 texturePositionData = new float3(texturePosition, 0, -1);
-
-				float4 position = new float4(unitTransform.Position, unitTransform.Scale);
-
-				if (distance < DistanceMaxLod0)
-				{
-					Lod0Positions.Add(position);
-					Lod0Rotations.Add(rotation);
-					Lod0TexturePositions.Add(texturePositionData);
-				}
-				else if (distance < DistanceMaxLod1)
-				{
-					Lod1Positions.Add(position);
-					Lod1Rotations.Add(rotation);
-					Lod1TexturePositions.Add(texturePositionData);
-				}
-				else if (distance < DistanceMaxLod2)
-				{
-					Lod2Positions.Add(position);
-					Lod2Rotations.Add(rotation);
-					Lod2TexturePositions.Add(texturePositionData);
-				}
-				else
-				{
-					Lod3Positions.Add(position);
-					Lod3Rotations.Add(rotation);
-					Lod3TexturePositions.Add(texturePositionData);
-				}
+				Lod0.Enqueue(new ComputeParameter(position, rotation, texturePosition));
+			}
+			else if (distance < DistanceMaxLod1)
+			{
+				Lod1.Enqueue(new ComputeParameter(position, rotation, texturePosition));
+			}
+			else if (distance < DistanceMaxLod2)
+			{
+				Lod2.Enqueue(new ComputeParameter(position, rotation, texturePosition));
+			}
+			else
+			{
+				Lod3.Enqueue(new ComputeParameter(position, rotation, texturePosition));
 			}
 		}
 	}
@@ -362,6 +399,9 @@ public class TextureAnimatorSystem : JobComponentSystem
 
 	protected override void OnDestroyManager()
 	{
+		while (_tmpBuffers.Count > 0)
+			_tmpBuffers.Dequeue().Dispose();
+		
 		previousFrameFence.Complete();
 		if (perUnitTypeDataHolder != null)
 		{
@@ -392,12 +432,14 @@ public class TextureAnimatorSystem : JobComponentSystem
 			return inputDeps;
 
 		float dt = Time.deltaTime;
+		while (_tmpBuffers.Count > 0)
+			_tmpBuffers.Dequeue().Dispose();
 
 		if (perUnitTypeDataHolder != null)
 		{
 			previousFrameFence.Complete();
-			previousFrameFence = inputDeps;
-
+			previousFrameFence = new JobHandle();
+			
 			lod0Count = lod1Count = lod2Count = lod3Count = 0;
 
 			foreach (var data in perUnitTypeDataHolder)
@@ -414,41 +456,31 @@ public class TextureAnimatorSystem : JobComponentSystem
 				data.Value.Count = lod0Count + lod1Count + lod2Count + lod3Count;
 			}
 
-			var textureAnimatorData = allUnitsQuery.ToComponentDataArray<TextureAnimatorData>(Allocator.TempJob);
-			var unitsCount = textureAnimatorData.Length;
-			var prepareAnimatorJob = new PrepareAnimatorDataJob()
+			
+			var prepareAnimatorJob = new PrepareAnimatorDataJob
 			{
 				animationClips = animationClipData,
 				dt = dt,
-				textureAnimatorData = textureAnimatorData,
 			};
+			
+			var prepareAnimatorFence = prepareAnimatorJob.Schedule(allUnitsQuery);
 
-			var prepareAnimatorFence = prepareAnimatorJob.Schedule(unitsCount, SimulationState.BigBatchSize, previousFrameFence);
-
-			NativeArray<JobHandle> jobHandles = new NativeArray<JobHandle>(4, Allocator.Temp);
+			NativeArray<JobHandle> jobHandles = new NativeArray<JobHandle>(2, Allocator.Temp);
 			jobHandles[0] = prepareAnimatorFence;
-
 			int count;
 
-			NativeArray<UnitTransformData> unitTransformDatas;
 			foreach (var data in perUnitTypeDataHolder)
 			{
 				switch (data.Key)
 				{
 					case UnitType.Melee:
-						textureAnimatorData = meleeUnitsQuery.ToComponentDataArray<TextureAnimatorData>(Allocator.TempJob);
-						unitTransformDatas = meleeUnitsQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob);
-						count = textureAnimatorData.Length;
-						
-						ComputeFences(textureAnimatorData, dt, unitTransformDatas, data, prepareAnimatorFence, jobHandles, 0);
+						count = meleeUnitsQuery.CalculateLength();
+						ComputeFences(meleeUnitsQuery, dt, data, prepareAnimatorFence, jobHandles, 0);
 						data.Value.Count = count;
 						break;
 					case UnitType.Skeleton:
-						textureAnimatorData = skeletonUnitsQuery.ToComponentDataArray<TextureAnimatorData>(Allocator.TempJob);
-						unitTransformDatas = skeletonUnitsQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob);
-						count = textureAnimatorData.Length;
-						
-						ComputeFences(textureAnimatorData, dt, unitTransformDatas, data, prepareAnimatorFence, jobHandles, 3);
+						count = skeletonUnitsQuery.CalculateLength();
+						ComputeFences(skeletonUnitsQuery, dt, data, prepareAnimatorFence, jobHandles, 1);
 						data.Value.Count = count;
 						break;
 				}
@@ -464,7 +496,8 @@ public class TextureAnimatorSystem : JobComponentSystem
 		return inputDeps;
 	}
 
-	private void ComputeFences(NativeArray<TextureAnimatorData> textureAnimatorDataForUnitType, float dt, NativeArray<UnitTransformData> unitTransformDataForUnitType, KeyValuePair<UnitType, DataPerUnitType> data, JobHandle previousFence, NativeArray<JobHandle> jobHandles, int i)
+	private static Queue<NativeQueue<ComputeParameter>> _tmpBuffers = new Queue<NativeQueue<ComputeParameter>>();
+	private void ComputeFences(EntityQuery query, float dt, KeyValuePair<UnitType, DataPerUnitType> data, JobHandle previousFence, NativeArray<JobHandle> jobHandles, int i)
 	{
 		Profiler.BeginSample("Scheduling");
 		// TODO: Replace this with more efficient search.
@@ -486,16 +519,37 @@ public class TextureAnimatorSystem : JobComponentSystem
 		data.Value.Lod2Drawer.TextureCoordinates.Clear();
 		data.Value.Lod3Drawer.TextureCoordinates.Clear();
 
-		var cullAndComputeJob = new CullAndComputeParametersSafe()
+		var lod0 = new NativeQueue<ComputeParameter>(Allocator.TempJob);
+		var lod1 = new NativeQueue<ComputeParameter>(Allocator.TempJob);
+		var lod2 = new NativeQueue<ComputeParameter>(Allocator.TempJob);
+		var lod3 = new NativeQueue<ComputeParameter>(Allocator.TempJob);
+		
+		_tmpBuffers.Enqueue(lod0);
+		_tmpBuffers.Enqueue(lod1);
+		_tmpBuffers.Enqueue(lod2);
+		_tmpBuffers.Enqueue(lod3);
+		
+		var cullAndComputeJob = new CullAndComputeParametersSafe
 		{
-			unitTransformData = unitTransformDataForUnitType,
-			textureAnimatorData = textureAnimatorDataForUnitType,
 			animationClips = animationClipData,
 			dt = dt,
 			CameraPosition = cameraPosition,
 			DistanceMaxLod0 = data.Value.BakedData.lods.Lod1Distance,
 			DistanceMaxLod1 = data.Value.BakedData.lods.Lod2Distance,
 			DistanceMaxLod2 = data.Value.BakedData.lods.Lod3Distance,
+			
+			Lod0 = lod0.ToConcurrent(),
+			Lod1 = lod1.ToConcurrent(),
+			Lod2 = lod2.ToConcurrent(),
+			Lod3 = lod3.ToConcurrent()
+		};
+		var applyChanges = new ApplyComputeParametersChange
+		{
+			Lod0 = lod0,
+			Lod1 = lod1,
+			Lod2 = lod2,
+			Lod3 = lod3,
+			
 			Lod0Positions = data.Value.Drawer.ObjectPositions,
 			Lod0Rotations = data.Value.Drawer.ObjectRotations,
 			Lod0TexturePositions = data.Value.Drawer.TextureCoordinates,
@@ -509,11 +563,12 @@ public class TextureAnimatorSystem : JobComponentSystem
 			Lod3Rotations = data.Value.Lod3Drawer.ObjectRotations,
 			Lod3TexturePositions = data.Value.Lod3Drawer.TextureCoordinates,
 		};
-
+		
+		
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Schedule compute jobs");
-		var computeShaderJobFence0 = cullAndComputeJob.Schedule(previousFence);
+		var computeShaderJobFence0 = applyChanges.Schedule(cullAndComputeJob.Schedule(query, previousFence));
 		Profiler.EndSample();
 
 		Profiler.BeginSample("Create combined dependency");

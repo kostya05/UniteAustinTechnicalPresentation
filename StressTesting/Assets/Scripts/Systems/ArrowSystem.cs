@@ -77,12 +77,17 @@ public class ArrowSystem : JobComponentSystem
 	protected override void OnCreate()
 	{
 		lifecycleManager = World.GetOrCreateSystem<UnitLifecycleManager>();
-		minionSystem = World.GetOrCreateSystem<Minions>();
+		minionSystem = World.GetOrCreateSystem<MinionSystem>();
 
-		arrowsQuery = GetEntityQuery(ComponentType.ReadOnly<AliveMinionData>(), ComponentType.ReadOnly<MinionBitmask>(),
-			ComponentType.ReadOnly<UnitTransformData>(), ComponentType.ReadOnly<UnitTransformData>());
-		minionsQuery = GetEntityQuery(ComponentType.ReadOnly<AliveMinionData>(),
-			ComponentType.ReadOnly<MinionBitmask>(), ComponentType.ReadOnly<UnitTransformData>());
+		arrowsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<AliveMinionData>(), 
+			ComponentType.ReadOnly<MinionBitmask>(),
+			ComponentType.ReadOnly<UnitTransformData>(),
+			ComponentType.ReadWrite<ArrowData>());
+		minionsQuery = GetEntityQuery(
+			ComponentType.ReadOnly<AliveMinionData>(),
+			ComponentType.ReadOnly<MinionBitmask>(), 
+			ComponentType.ReadOnly<UnitTransformData>());
 	}
 
 	protected override JobHandle OnUpdate(JobHandle inputDeps)

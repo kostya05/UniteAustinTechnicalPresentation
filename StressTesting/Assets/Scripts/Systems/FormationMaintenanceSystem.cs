@@ -20,7 +20,6 @@ public class FormationMaintenanceSystem : JobComponentSystem
 
 		var components = FormationSystem.GetFormationQueryTypes();
 		formationsQuery = GetEntityQuery(components);
-		components.Dispose();
 	}
 
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
@@ -29,16 +28,21 @@ public class FormationMaintenanceSystem : JobComponentSystem
 		if (count == 0) 
 			return inputDeps;
 
-		var cleanUnitsJob = new ClearUnitDataJob();
+		var formationUnitData = GetBufferFromEntity<EntityRef>(false);
+		var cleanUnitsJob = new ClearUnitDataJob
+		{
+			formationUnitData = formationUnitData
+		};
 		
 		var fillUnitJob = new FillUnitDataJob
 		{ 
-			formationUnitData = GetBufferFromEntity<EntityRef>()
+			formationUnitData = formationUnitData
 		};
 		
 		var rearrangeJob = new RearrangeUnitIndexesJob
 		{
-			indicesInFormation = GetComponentDataFromEntity<IndexInFormationData>()
+			indicesInFormation = GetComponentDataFromEntity<IndexInFormationData>(),
+			formationUnitData = formationUnitData
 		};
 
 		var cleanFence = cleanUnitsJob.Schedule(formationsQuery, inputDeps);
@@ -49,20 +53,30 @@ public class FormationMaintenanceSystem : JobComponentSystem
 	}
 
 	[BurstCompile]
-	private struct ClearUnitDataJob : IJobForEach_BC<EntityRef, FormationData>
+	private struct ClearUnitDataJob : IJobForEachWithEntity<FormationData>
 	{
-		public void Execute(DynamicBuffer<EntityRef> unitData, [ReadOnly]ref FormationData formationData)
+		[NativeDisableParallelForRestriction]
+		public BufferFromEntity<EntityRef> formationUnitData;
+
+		public void Execute([ReadOnly]Entity entity, int index, [ReadOnly]ref FormationData formationData)
 		{
 			var len = math.max(formationData.SpawnedCount, formationData.UnitCount);
+			formationUnitData[entity].ResizeUninitialized(len);
 
+			/*var unitData = formationUnitData[entity];
+			unitData.Clear();
+			
 			for (var i = 0; i < len; i++)
-				unitData[i] = new EntityRef();
+				unitData.Add(new EntityRef());*/
+
+			//unitData[i] = );
 		}
 	}
 
 	[BurstCompile]
 	private struct FillUnitDataJob : IJobForEachWithEntity_ECC<UnitTransformData, IndexInFormationData>
 	{
+		[NativeDisableParallelForRestriction]
 		public BufferFromEntity<EntityRef> formationUnitData;
 
 		public void Execute(Entity entity, int index, [ReadOnly]ref UnitTransformData transform, [ReadOnly]ref IndexInFormationData indexData)
@@ -73,13 +87,18 @@ public class FormationMaintenanceSystem : JobComponentSystem
 	}
 
 	[BurstCompile]
-	private struct RearrangeUnitIndexesJob : IJobForEach_BC<EntityRef, FormationData>
+	private struct RearrangeUnitIndexesJob : IJobForEachWithEntity<FormationData>
 	{
 		[NativeDisableParallelForRestriction]
 		public ComponentDataFromEntity<IndexInFormationData> indicesInFormation;
-		public void Execute(DynamicBuffer<EntityRef> unitData, [ReadOnly]ref FormationData formation)
+		
+		[NativeDisableParallelForRestriction]
+		public BufferFromEntity<EntityRef> formationUnitData;
+		
+		public void Execute(Entity entity, int index, [ReadOnly]ref FormationData formation)
 		{
-			var len = math.max(formation.SpawnedCount, formation.UnitCount);
+			var unitData = formationUnitData[entity];
+				var len = math.max(formation.SpawnedCount, formation.UnitCount);
 			for (var i = 0; i < len; i++)
 			{
 				if (unitData[i].entity != new Entity()) 

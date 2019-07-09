@@ -91,13 +91,15 @@ public partial class CrowdSystem : JobComponentSystem
         base.OnCreate();
 
         m_CrowdQuery = GetEntityQuery(ComponentType.ReadWrite<CrowdAgent>(),
-            ComponentType.ReadWrite<CrowdAgentNavigator>(), ComponentType.ChunkComponent<PolygonIdBuffer>());
+            ComponentType.ReadWrite<CrowdAgentNavigator>(), ComponentType.ReadWrite<PolygonIdBufferElement>());
+        
         m_InitialCapacity = 1000;
+        Initialize(m_InitialCapacity);
     }
 
-    protected override void OnDestroyManager()
+    protected override void OnDestroy()
     {
-        base.OnDestroyManager();
+        base.OnDestroy();
 
         DisposeEverything();
     }
@@ -144,19 +146,37 @@ public partial class CrowdSystem : JobComponentSystem
     {
         m_AfterMovedRequestsForgotten.Complete();
         m_AfterQueriesCleanup.Complete();
-        for (var i = 0; i < m_QueryQueues.Length; i++)
+        if (m_QueryQueues != null)
         {
-            m_QueryQueues[i].Dispose();
+            for (var i = 0; i < m_QueryQueues.Length; i++)
+                m_QueryQueues[i].Dispose();
         }
-        m_AfterQueriesProcessed.Dispose();
-        m_PlanPathForAgent.Dispose();
-        m_EmptyPlanPathForAgent.Dispose();
-        m_PathRequestIdForAgent.Dispose();
-        m_PathRequests.Dispose();
-        m_PathRequestsRange.Dispose();
-        m_UniqueIdStore.Dispose();
-        m_CurrentAgentIndex.Dispose();
-        m_NavMeshQuery.Dispose();
+        if(m_AfterQueriesProcessed.IsCreated)
+            m_AfterQueriesProcessed.Dispose();
+        
+        if(m_PlanPathForAgent.IsCreated)
+            m_PlanPathForAgent.Dispose();
+        
+        if(m_EmptyPlanPathForAgent.IsCreated)
+            m_EmptyPlanPathForAgent.Dispose();
+        
+        if(m_PathRequestIdForAgent.IsCreated)
+            m_PathRequestIdForAgent.Dispose();
+        
+        if(m_PathRequests.IsCreated)
+            m_PathRequests.Dispose();
+        
+        if(m_PathRequestsRange.IsCreated)
+            m_PathRequestsRange.Dispose();
+        
+        if(m_UniqueIdStore.IsCreated)
+            m_UniqueIdStore.Dispose();
+        
+        if(m_CurrentAgentIndex.IsCreated)
+            m_CurrentAgentIndex.Dispose();
+        
+        if(!m_NavMeshQuery.Equals(default(NavMeshQuery)))
+            m_NavMeshQuery.Dispose();
     }
 
     public void OnAddElements(int numberOfAdded)
@@ -387,7 +407,7 @@ public partial class CrowdSystem : JobComponentSystem
         {
             var resultsJob = new ApplyQueryResultsJob
             {
-                PolygonIdBuffer = GetArchetypeChunkBufferType<PolygonIdBuffer>(),
+                PolygonIdBuffer = GetArchetypeChunkBufferType<PolygonIdBufferElement>(),
                 paths = m_Crowd.Chunks,
                 queryQueue = queue, 
                 agentNavigators = m_Crowd.agentNavigators
@@ -403,6 +423,7 @@ public partial class CrowdSystem : JobComponentSystem
         var totalCornersBuffer = m_Crowd.agents.Length * maxCornersPerAgent;
         var vel = new UpdateVelocityJob
         {
+            pathArray = new NativeArray<PolygonId>(1024, Allocator.TempJob),
             query = m_NavMeshQuery,
             straightPath = new NativeArray<NavMeshLocation>(totalCornersBuffer, Allocator.TempJob),
             straightPathFlags = new NativeArray<StraightPathFlags>(totalCornersBuffer, Allocator.TempJob),

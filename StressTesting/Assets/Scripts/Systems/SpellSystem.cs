@@ -62,6 +62,13 @@ public class SpellSystem : JobComponentSystem
 			transforms = entityQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob);
 			rigidbodies = entityQuery.ToComponentDataArray<RigidbodyData>(Allocator.TempJob);
 		}
+
+		public void Free()
+		{
+			entities.Dispose();
+			transforms.Dispose();
+			rigidbodies.Dispose();
+		}
 	}
 
 	//public struct Formations
@@ -266,7 +273,8 @@ public class SpellSystem : JobComponentSystem
 	protected override JobHandle OnUpdate(JobHandle inputDeps)
 	{
 		var rigidbodies = new Rigidbodies(rigidbodiesQuery);
-		if (rigidbodies.Length == 0) return inputDeps;
+		if (rigidbodies.Length == 0) 
+			return inputDeps;
 
 		if (Input.GetKeyDown(KeyCode.Alpha1))
 		{
@@ -360,7 +368,11 @@ public class SpellSystem : JobComponentSystem
 
 			CombinedExplosionHandle = explosionJob.Schedule(rigidbodies.Length, SimulationState.HumongousBatchSize, inputDeps);
 		}
-		else CombinedExplosionHandle = default(JobHandle);
+		else
+		{
+			rigidbodies.Free();
+			CombinedExplosionHandle = default(JobHandle);
+		}
 
 		return CombinedExplosionHandle;
 	}

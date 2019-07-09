@@ -20,17 +20,22 @@ public class PrepareBucketsSystem : JobComponentSystem
 
 		public int Length;
 
-		public Minions(EntityQuery entityQuery, ref JobHandle inputDeps) : this()
+		public Minions(EntityQuery entityQuery, ref JobHandle inputDeps)
 		{
 			Length = entityQuery.CalculateLength();
 
 			if (Length == 0)
-				return;
+			{
+				transforms = default(NativeArray<UnitTransformData>);
+				bitmask = default(NativeArray<MinionBitmask>);
+			}
+			else
+			{
+				transforms = entityQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob, out var h1);
+				bitmask = entityQuery.ToComponentDataArray<MinionBitmask>(Allocator.TempJob, out var h2);
 			
-			transforms = entityQuery.ToComponentDataArray<UnitTransformData>(Allocator.TempJob, out var h1);
-			bitmask = entityQuery.ToComponentDataArray<MinionBitmask>(Allocator.TempJob, out var h2);
-			
-			inputDeps = JobHandle.CombineDependencies(inputDeps, h1, h2);
+				inputDeps = JobHandle.CombineDependencies(inputDeps, h1, h2);
+			}
 		}
 	}
 
@@ -38,7 +43,9 @@ public class PrepareBucketsSystem : JobComponentSystem
 	{
 		base.OnCreate();
 		minionSystem = World.GetOrCreateSystem<MinionSystem>();
-		query = GetEntityQuery(ComponentType.ReadOnly<AliveMinionData>(), ComponentType.ReadOnly<UnitTransformData>(),
+		query = GetEntityQuery(
+			ComponentType.ReadOnly<AliveMinionData>(),
+			ComponentType.ReadOnly<UnitTransformData>(),
 			ComponentType.ReadOnly<MinionBitmask>());
 	}
 

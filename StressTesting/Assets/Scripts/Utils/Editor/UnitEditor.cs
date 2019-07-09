@@ -179,7 +179,7 @@ public class UnitEditor :  EditorWindow
 		Debug.DrawLine(agent.worldPosition, navigator.requestedDestination, Color.green, Time.deltaTime * 2);
 	}
 
-	public static void DrawUnitPaths(MinionPathData minionPathInfo, DynamicBuffer<PathPoint> path)
+	public static void DrawUnitPaths(MinionPathData minionPathInfo, DynamicBuffer<PathElement> path)
 	{
 		if (EditorApplication.isPaused) return;
 		if ((minionPathInfo.bitmasks & 4) == 0)
@@ -306,7 +306,7 @@ public class UnitEditor :  EditorWindow
 		
 		if (DrawUnitPathFinding)
 		{
-			var paths = EditorHelperSystem.I.GetBufferFromEntity<PathPoint>(true);
+			var paths = EditorHelperSystem.I.GetBufferFromEntity<PathElement>(true);
 			for (int i = 0; i < EditorHelperSystem.I.minions.Length; i++)
 			{
 				var path = paths[EditorHelperSystem.I.minions.entities[i]];
@@ -434,7 +434,6 @@ public class EditorHelperSystem : JobComponentSystem
 			data.Dispose();
 			pathsInfo.Dispose();
 			locationComponents.Dispose();
-			animationData.Dispose();
 			attackData.Dispose();
 			bitmask.Dispose();
 		}

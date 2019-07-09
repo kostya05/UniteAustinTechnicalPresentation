@@ -128,7 +128,7 @@ public struct PathQueryQueueEcs
         return m_State[0].resultPathsCount;
     }
 
-    public void CopyResultsTo(ArchetypeChunkBufferType<PolygonIdBuffer> polygonIdBuffer, ref  NativeArray<ArchetypeChunk> Chunks, ref NativeArray<CrowdAgentNavigator> agentNavigators)
+    public void CopyResultsTo(ArchetypeChunkBufferType<PolygonIdBufferElement> polygonIdBuffer, ref  NativeArray<ArchetypeChunk> Chunks, ref NativeArray<CrowdAgentNavigator> agentNavigators)
     {
         var state = m_State[0];
         
@@ -137,7 +137,7 @@ public struct PathQueryQueueEcs
             var index = m_AgentIndices[i];
             ArchetypeChunk chunk = Chunks[index];
 
-            BufferAccessor<PolygonIdBuffer> agentPaths = chunk.GetBufferAccessor(polygonIdBuffer);
+            BufferAccessor<PolygonIdBufferElement> agentPaths = chunk.GetBufferAccessor(polygonIdBuffer);
             var resultPathInfo = m_ResultRanges[i];
             var resultNodes = new NativeSlice<PolygonId>(m_ResultNodes, resultPathInfo.begin, resultPathInfo.size);
             var agentPathBuffer = agentPaths[index];

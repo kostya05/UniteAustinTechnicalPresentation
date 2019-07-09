@@ -8,9 +8,9 @@ using Unity.Entities;
 public struct PrepareBucketsJob : IJob
 {
 
-	[ReadOnly]
+	[ReadOnly, DeallocateOnJobCompletion]
 	public NativeArray<UnitTransformData> transforms;
-	[ReadOnly]
+	[ReadOnly, DeallocateOnJobCompletion]
 	public NativeArray<MinionBitmask> minionBitmask;
 
 	public NativeMultiHashMap<int, int> buckets;

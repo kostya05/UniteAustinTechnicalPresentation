@@ -58,7 +58,7 @@ public class FormationPathFindSystem : JobComponentSystem
         minionsQuery = GetEntityQuery(
             ComponentType.ReadWrite<MinionTarget>(),
             ComponentType.ReadWrite<MinionPathData>(), 
-            ComponentType.ChunkComponent<PathPoint>(),
+            ComponentType.ReadWrite<PathElement>(),
             ComponentType.ReadOnly<NavMeshLocationComponent>());
 
         formationsQuery = GetEntityQuery(
@@ -93,6 +93,7 @@ public class FormationPathFindSystem : JobComponentSystem
         var pathFollow = new MinionFollowPath
         {
             newPathQueries = newPathQueries.ToConcurrent(),
+            minionPaths = GetBufferFromEntity<PathElement>(true),
             maxPathSize = SimulationState.MaxPathSize
         };
         Entity rmEnt;
@@ -136,7 +137,7 @@ public class FormationPathFindSystem : JobComponentSystem
         newPathQueries.Clear();
         var findHandle = inputDeps;
 
-        var pathPoints = GetBufferFromEntity<PathPoint>();
+        var pathPoints = GetBufferFromEntity<PathElement>();
         var pathInfos = GetComponentDataFromEntity<MinionPathData>();
         var navMeshLocations = GetComponentDataFromEntity<NavMeshLocationComponent>();
         for (int i = 0; i < findingEntities.Length; ++i)
@@ -149,7 +150,7 @@ public class FormationPathFindSystem : JobComponentSystem
                 completePathQueries = completePathQueries,
 
                 pathsInfo = pathInfos,
-                minionPath = pathPoints[entity],
+                minionPath = pathPoints,
                 navMeshLocation = navMeshLocations,
                 maxPathSize = SimulationState.MaxPathSize,
                 //costs = costs,
@@ -185,7 +186,7 @@ public class FormationPathFindSystem : JobComponentSystem
         public Entity entity;
         public NativeQueue<Entity> completePathQueries;
         public ComponentDataFromEntity<MinionPathData> pathsInfo;
-        public DynamicBuffer<PathPoint> minionPath;
+        public BufferFromEntity<PathElement> minionPath;
         public ComponentDataFromEntity<NavMeshLocationComponent> navMeshLocation;
 
         // Temp data for path finding
@@ -248,22 +249,18 @@ public class FormationPathFindSystem : JobComponentSystem
                     pathInfo.pathSize = 0;
 
                     var cornerCount = 0;
-                    var tmpBuffer = new NativeArray<PolygonIdBuffer>(polygons.Length, Allocator.Temp);
-                    for (int i = 0; i < tmpBuffer.Length; i++)
-                        tmpBuffer[i] = polygons[i];
                     var pathStatus = PathUtils.FindStraightPath(query, navMeshLocation[entity].NavMeshLocation.position,
                                                                 pathInfo.targetPosition,
-                                                                tmpBuffer, polySize,
+                                                                polygons, polySize,
                                                                 ref straightPath, ref straightPathFlags, ref vertexSide,
                                                                 ref cornerCount, maxPathSize);
-                    tmpBuffer.Dispose();
                     
                     if (pathStatus.IsSuccess() && cornerCount > 1 && cornerCount <= maxPathSize)
                     {
+                        var path = minionPath[entity];
+                        path.ResizeUninitialized(cornerCount);
                         for (var i = 0; i < cornerCount; i++)
-                        {
-                            minionPath[i] = straightPath[i].position;
-                        }
+                            path[i] = straightPath[i].position;
 
                         pathInfo.pathFoundToPosition = straightPath[cornerCount - 1].position;
                         pathInfo.pathSize = cornerCount;
@@ -285,12 +282,14 @@ public class FormationPathFindSystem : JobComponentSystem
         }
     }
     [BurstCompile]
-    private struct MinionFollowPath : IJobForEachWithEntity_EBCCC<PathPoint, MinionPathData, MinionTarget, NavMeshLocationComponent>
+    private struct MinionFollowPath : IJobForEachWithEntity_ECCC<MinionPathData, MinionTarget, NavMeshLocationComponent>
     {
         public NativeQueue<Entity>.Concurrent newPathQueries;
+        [ReadOnly]
+        public BufferFromEntity<PathElement> minionPaths;
         public int maxPathSize;
 
-        public void Execute(Entity entity, int index, DynamicBuffer<PathPoint> minionPath, ref MinionPathData pathInfo, ref MinionTarget minionTarget, [ReadOnly]ref NavMeshLocationComponent navMeshLocation)
+        public void Execute(Entity entity, int index, ref MinionPathData pathInfo, ref MinionTarget minionTarget, [ReadOnly]ref NavMeshLocationComponent navMeshLocation)
         {
             if ((pathInfo.bitmasks & 1) == 1)
             {
@@ -310,6 +309,7 @@ public class FormationPathFindSystem : JobComponentSystem
                     // The path was previously found. We need to move on it
                     if (maxPathSize != 0)
                     {
+                        var minionPath = minionPaths[entity];
                         var potentialTarget = minionPath[pathInfo.currentCornerIndex];
 
                         if (mathx.lengthSqr((float3)navMeshLocation.NavMeshLocation.position - potentialTarget) < 0.01f)

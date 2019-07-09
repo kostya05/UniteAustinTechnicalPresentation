@@ -49,7 +49,7 @@ public class PathUtils
 
     // Retrace portals between corners and register if type of polygon changes
     public static int RetracePortals(NavMeshQuery query, int startIndex, int endIndex
-        , NativeSlice<PolygonIdBuffer> path, int n, Vector3 termPos
+        , NativeSlice<PolygonId> path, int n, Vector3 termPos
         , ref NativeArray<NavMeshLocation> straightPath
         , ref NativeArray<StraightPathFlags> straightPathFlags
         , int maxStraightPath)
@@ -89,7 +89,7 @@ public class PathUtils
     }
 
     public static PathQueryStatus FindStraightPath(NavMeshQuery query, Vector3 startPos, Vector3 endPos
-        , NativeSlice<PolygonIdBuffer> path, int pathSize
+        , NativeSlice<PolygonId> path, int pathSize
         , ref NativeArray<NavMeshLocation> straightPath
         , ref NativeArray<StraightPathFlags> straightPathFlags
         , ref NativeArray<float> vertexSide

@@ -181,9 +181,9 @@ public partial class CrowdSystem
     }
 
     [BurstCompile]
-    public struct AdvancePathJob : IJobForEach_BCC<PolygonIdBuffer, CrowdAgent, CrowdAgentNavigator>
+    public struct AdvancePathJob : IJobForEach_BCC<PolygonIdBufferElement, CrowdAgent, CrowdAgentNavigator>
     {
-        public void Execute(DynamicBuffer<PolygonIdBuffer> path, ref CrowdAgent agent, ref CrowdAgentNavigator agentNavigator)
+        public void Execute(DynamicBuffer<PolygonIdBufferElement> path, ref CrowdAgent agent, ref CrowdAgentNavigator agentNavigator)
         {
             if (!agentNavigator.active)
                 return;
@@ -231,7 +231,7 @@ public partial class CrowdSystem
     }
 
     [BurstCompile]
-    public struct UpdateVelocityJob : IJobForEach_BCC<PolygonIdBuffer, CrowdAgent, CrowdAgentNavigator>
+    public struct UpdateVelocityJob : IJobForEach_BCC<PolygonIdBufferElement, CrowdAgent, CrowdAgentNavigator>
     {
         [ReadOnly]
         public NavMeshQuery query;
@@ -247,8 +247,13 @@ public partial class CrowdSystem
         [DeallocateOnJobCompletion]
         [NativeDisableParallelForRestriction]
         public NativeArray<float> vertexSide;
+        
+        
+        [DeallocateOnJobCompletion]
+        [NativeDisableParallelForRestriction]
+        public NativeArray<PolygonId> pathArray;
 
-        public void Execute(DynamicBuffer<PolygonIdBuffer> pathBuffer, ref CrowdAgent agent, ref CrowdAgentNavigator agentNavigator)
+        public void Execute(DynamicBuffer<PolygonIdBufferElement> pathBuffer, ref CrowdAgent agent, ref CrowdAgentNavigator agentNavigator)
         {
             if (!agentNavigator.active || !query.IsValid(agent.location))
             {
@@ -266,8 +271,10 @@ public partial class CrowdSystem
                 if (agentNavigator.pathSize > 1)
                 {
                     var cornerCount = 0;
-                    var path = pathBuffer.AsNativeArray();
-                    var pathStatus = PathUtils.FindStraightPath(query, currentPos, endPos, path, agentNavigator.pathSize, ref straightPath, ref straightPathFlags, ref vertexSide, ref cornerCount, straightPath.Length);
+                    for (int i = 0; i < pathBuffer.Length; i++)
+                        pathArray[i] = pathBuffer[i];
+                    
+                    var pathStatus = PathUtils.FindStraightPath(query, currentPos, endPos, pathArray.Slice(0, pathBuffer.Length), agentNavigator.pathSize, ref straightPath, ref straightPathFlags, ref vertexSide, ref cornerCount, straightPath.Length);
 
                     if (pathStatus.IsSuccess() && cornerCount > 1)
                     {
@@ -340,7 +347,7 @@ public partial class CrowdSystem
         public NativeArray<ArchetypeChunk> paths;
         public NativeArray<CrowdAgentNavigator> agentNavigators;
 
-        public ArchetypeChunkBufferType<PolygonIdBuffer> PolygonIdBuffer;
+        public ArchetypeChunkBufferType<PolygonIdBufferElement> PolygonIdBuffer;
 
         public void Execute()
         {
